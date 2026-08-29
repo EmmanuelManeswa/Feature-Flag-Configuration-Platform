@@ -38,5 +38,4 @@ docker-data/
 # --- Logs ---
 *.log
 logs/
-.claude
 */HELP.md
