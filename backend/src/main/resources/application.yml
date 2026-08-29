@@ -1,0 +1,79 @@
+spring:
+  application:
+    name: feature-flag-platform
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:feature_flags}
+    username: ${POSTGRES_USER:feature_flags}
+    password: ${POSTGRES_PASSWORD:feature_flags}
+    hikari:
+      maximum-pool-size: 10
+      pool-name: feature-flags-pool
+  jpa:
+    hibernate:
+      # Flyway owns schema evolution; Hibernate only ever validates it matches.
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 2000ms
+      connect-timeout: 2000ms
+  jackson:
+    default-property-inclusion: non_null
+
+server:
+  port: ${SERVER_PORT:8080}
+
+app:
+  jwt:
+    # Dev-only default. Never used as-is outside local dev; docker-compose and
+    # any real deployment must set JWT_SECRET explicitly (see .env.example).
+    secret: ${JWT_SECRET:dev-only-insecure-secret-change-me-please-32-bytes-min}
+    expiration-minutes: ${JWT_EXPIRATION_MINUTES:60}
+  cache:
+    flag-ttl-seconds: ${CACHE_FLAG_TTL_SECONDS:300}
+  ai:
+    # mock | docker-model-runner
+    provider: ${AI_PROVIDER:mock}
+    base-url: ${AI_BASE_URL:http://localhost:12434/engines/v1}
+    model: ${AI_MODEL:ai/qwen2.5:latest}
+    timeout-ms: ${AI_TIMEOUT_MS:8000}
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when-authorized
+      probes:
+        enabled: true
+  health:
+    redis:
+      enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    display-request-duration: true
+  api-docs:
+    path: /v3/api-docs
+
+logging:
+  level:
+    root: INFO
+    com.featureflagplatform: DEBUG
