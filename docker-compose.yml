@@ -1,0 +1,45 @@
+name: feature-flag-platform
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-feature_flags}
+      POSTGRES_USER: ${POSTGRES_USER:-feature_flags}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-dev-password}
+    ports:
+      # Host-side port only. Defaults to 5433 (not 5432) to avoid clashing with
+      # a Postgres instance already running natively on the host. Containers
+      # talking to this service over the compose network always use 5432
+      # internally, regardless of this mapping.
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      # Named volume, not a bind mount: survives `docker compose down` and
+      # container recreation. Only `docker compose down -v` removes it.
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-feature_flags} -d ${POSTGRES_DB:-feature_flags}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      # Same reasoning as postgres above: 6380 by default to dodge a
+      # natively-running Redis on the host.
+      - "${REDIS_PORT:-6380}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres-data:
+  redis-data:
