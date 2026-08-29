@@ -4,7 +4,9 @@ spring:
   datasource:
     url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:feature_flags}
     username: ${POSTGRES_USER:feature_flags}
-    password: ${POSTGRES_PASSWORD:feature_flags}
+    # No insecure fallback default: the app must fail to start rather than
+    # silently connect with a guessable password. Set via .env locally.
+    password: ${POSTGRES_PASSWORD}
     hikari:
       maximum-pool-size: 10
       pool-name: feature-flags-pool
@@ -34,9 +36,12 @@ server:
 
 app:
   jwt:
-    # Dev-only default. Never used as-is outside local dev; docker-compose and
-    # any real deployment must set JWT_SECRET explicitly (see .env.example).
-    secret: ${JWT_SECRET:dev-only-insecure-secret-change-me-please-32-bytes-min}
+    # No fallback default on purpose: an insecure-but-working default is how
+    # a real deployment ends up signing tokens with a secret published in a
+    # public repo. Missing JWT_SECRET must fail application startup, not
+    # silently start in a broken-security state. Generate one locally with
+    # `openssl rand -base64 48` (see .env.example).
+    secret: ${JWT_SECRET}
     expiration-minutes: ${JWT_EXPIRATION_MINUTES:60}
   cache:
     flag-ttl-seconds: ${CACHE_FLAG_TTL_SECONDS:300}
