@@ -1,11 +1,11 @@
 # Current State
 
-Last updated: 2026-08-30 (session 1, continued across a mid-session resumption and a
-usage-limit resumption)
+Last updated: 2026-08-31 (session 2 — stretch goals, live AI verification, documentation
+deliverables)
 
-## Completed — this is essentially the full lean-scope implementation
+## Completed — full lean-scope implementation plus all three stretch goals
 
-**Backend** (Spring Boot 3.5.16, 50 tests passing):
+**Backend** (Spring Boot 3.5.16, 58 tests passing):
 - Evaluation engine (framework-free), deterministic SHA-256 bucketing — ADR-001
 - Auth: JWT, Spring Security, ADMIN/VIEWER roles
 - Environments API (create/list/get)
@@ -14,13 +14,18 @@ usage-limit resumption)
   down by hand (36ms fallback after tuning the Lettuce timeout down from 2s)
 - Immutable audit trail (`AppendOnlyRepository` — no delete method exists in its hierarchy)
 - AI rule assistant: `AiProvider`/`AiRuleAssistantService` abstraction, `MockAiProvider`
-  (default) + `DockerModelRunnerAiProvider` — ADR-003
-- Observability: correlation IDs (now correctly wired ahead of Spring Security's own chain),
-  RFC 7807 errors everywhere including filter-level 401/403, structured JSON logs (docker/prod
-  profile), Micrometer counters/timer, Actuator
+  (default) + `DockerModelRunnerAiProvider` — ADR-003, **now live-verified against a real
+  pulled `ai/llama3.2` model** (see below)
+- Observability: correlation IDs (wired ahead of Spring Security's own chain), RFC 7807 errors
+  everywhere including filter-level 401/403, structured JSON logs (docker/prod profile),
+  Micrometer counters/timer, Actuator
 - Full OpenAPI/Swagger docs per endpoint per status code, bearer-auth wired into Swagger UI
+- **Stretch goal — live updates**: `GET /api/v1/flags/stream` (SSE), `FlagChangeNotifier`
+  broadcasting only `AFTER_COMMIT` — ADR-005
+- **Stretch goal — evaluation metrics**: `GET /api/v1/flags/{id}/metrics`, reads the existing
+  Micrometer counters back scoped/grouped per flag — ADR-005
 
-**Frontend** (Next.js 16 / React 19, 13 tests passing):
+**Frontend** (Next.js 16 / React 19, 19 tests passing):
 - shadcn/ui (Radix base) + custom indigo/violet brand theme (light/dark via next-themes)
 - Auth (JWT in localStorage, documented trade-off), protected app shell, sidebar/topbar
 - Dashboard, Feature Flags list+create+edit (TanStack Table/Form/Query), flag detail page
@@ -28,13 +33,22 @@ usage-limit resumption)
   auto-saves), Audit Log (global + per-flag, with a curated diff view), Environments
 - Vitest + RTL tests for the states that actually matter: evaluation result rendering, AI
   proposal review (including the AI-unavailable path), 409 stale-version conflict, DataTable
-  loading/empty states
+  loading/empty states, hand-rolled SSE event parser
+- **Stretch goal — live updates UI**: `lib/sse-client.ts` (fetch + ReadableStream, not
+  `EventSource` — see ADR-005 for why), `LiveUpdatesIndicator` in the topbar, flags list/
+  dashboard auto-refresh on any flag change from any source
+- **Stretch goal — metrics UI**: `FlagMetricsCard` on the flag detail page
+
+**Stretch goal — sample SDK client**: `examples/sdk-client/` — plain Node.js, zero dependencies,
+`client.mjs` + a runnable `example.mjs` demo. Live-verified twice against the real backend,
+confirming identical deterministic-rollout results both runs.
 
 **Docker**: multi-stage Dockerfiles for both services (non-root, healthchecks), full
 `docker-compose.yml` (postgres/redis/backend/frontend), named volumes for persistence.
 
-**Docs**: README (all required sections), `docs/security.md`, `docs/production-readiness.md`,
-`docs/assessment-compliance.md`, ADR-001 through ADR-004.
+**Docs**: README (all required sections plus "Stretch goals", "Switching the AI model", "Data &
+log persistence"), `docs/security.md`, `docs/production-readiness.md`,
+`docs/assessment-compliance.md`, ADR-001 through ADR-005.
 
 ## Real bugs found via actually running the app (not just type-checking / mvn test)
 
@@ -55,6 +69,14 @@ All fixed, all now have a regression test or were verified fixed by hand:
 5. Frontend: applying an AI proposal dumped its truncated explanation into the flag Name field;
    the AI-unavailable error message duplicated "configure manually" (both frontend and backend
    copy said it).
+6. `AI_MODEL`'s default had silently drifted to `ai/qwen2.5:latest` even though ADR-003
+   documents `ai/llama3.2` as the actual chosen model — found while live-verifying the AI path
+   for the first time this session, fixed in `application.yml`, `.env.example`, and
+   `docker-compose.yml`.
+7. `AI_TIMEOUT_MS=8000` was too aggressive for a real local model — a cold-loaded `ai/llama3.2`
+   took ~14-18s before first token even though actual llama.cpp inference was under a second
+   once warm, so a real, successful response was being clipped as a false `TIMEOUT`. Only
+   reachable by calling a real pulled model, not the mocked-provider tests. Raised to 20000ms.
 
 Two automated-review findings on committed code, also fixed: `JWT_SECRET`/`POSTGRES_PASSWORD`
 had insecure fallback defaults (removed — now required, no default); the
@@ -63,48 +85,43 @@ risk) — now allowlist-validated.
 
 ## Environment notes for future sessions
 
-- This machine had significant network/bandwidth constraints during this session (Docker Hub
-  pulls, npm/pnpm installs, and a Docker Model Runner model pull all ran extremely slowly — the
-  `ai/llama3.2` pull took multiple hours for ~2GB). If picking this up again and something
-  seems to hang on a download, that's likely why — check `docker model df` / process activity
-  before assuming something is broken.
+- This machine had significant network/bandwidth constraints throughout development (Docker Hub
+  pulls, npm/pnpm installs, and the Docker Model Runner model pull all ran extremely slowly, and
+  the `ai/llama3.2` pull failed outright more than once with a blob checksum mismatch before
+  eventually succeeding). If picking this up again and something seems to hang on a download,
+  check for this before assuming something is broken in the app itself.
 - `bun` (needed for the `gstack` browse skill) is installed via Homebrew
-  (`brew install oven-sh/bun/bun`) — the skill's own pinned-checksum curl installer failed a
-  checksum match (bun.sh's install script had moved on from the pinned hash).
+  (`brew install oven-sh/bun/bun`), and needs `/opt/homebrew/bin` on `$PATH` explicitly in some
+  shell invocations — the skill's own pinned-checksum curl installer failed a checksum match
+  (bun.sh's install script had moved on from the pinned hash).
 - Node/pnpm need `export PATH="$HOME/.nvm/versions/node/v23.11.0/bin:$PATH"` in some shell
-  invocations this session — profile sourcing was inconsistent across Bash tool calls at times.
-
-## Current work
-
-Was running a full `docker compose up -d --build` (fresh build of both service images against
-the real Dockerfiles, not just `docker compose up` against already-running dev servers) to
-verify the reviewer's actual `git clone && docker compose up` path works end to end. Slow due to
-the network conditions above — check `docker compose ps` and `docker compose logs` for where it
-got to.
+  invocations — profile sourcing has been inconsistent across Bash tool calls at times.
+- Local `.env` (gitignored, not the committed `.env.example`) is currently set to
+  `AI_PROVIDER=docker-model-runner` / `AI_MODEL=ai/llama3.2:latest` on this machine, for the
+  candidate's own demo/recording purposes — the committed default in `.env.example` correctly
+  stays `mock`, per ADR-003's reasoning (a reviewer's first run must work with zero AI setup).
 
 ## Remaining
 
-- Finish verifying the fresh `docker compose up --build` actually serves the app correctly on
-  :3000/:8080 (was verified extensively via `mvnw spring-boot:run` + `pnpm dev` directly, and via
-  real browser testing against that setup — Docker-specific verification (build args, healthchecks,
-  inter-container networking) was still in progress when this was last updated).
-- Live end-to-end verification of `DockerModelRunnerAiProvider` against a real pulled model —
-  the mock provider (documented default) is fully verified; the Docker Model Runner path is
-  verified against the API contract and covered by mocked-provider tests. The `ai/llama3.2`
-  pull was retried across the session and ultimately **failed**, not just slow: it reached
-  ~202MB of 2.02GB then hit a blob digest mismatch (`docker model pull ai/llama3.2`, checksum
-  error), consistent with the same degraded-connection pattern seen with Docker Hub image
-  pulls all session. `docker model list` confirms no model is present locally. Not retried
-  further without the candidate's go-ahead, to avoid tying up the session on the same failure
-  mode again. This is disclosed honestly in the README rather than claimed as verified.
-- Optional stretch goals not attempted (SSE/WebSocket flag-change updates, an SDK-style sample
-  client, none required for the lean scope decided with the candidate).
+- **`docker compose up --build` still not empirically verified end to end** in this development
+  environment — checked again this session (`docker images | grep feature-flag` → nothing built
+  yet, only postgres/redis containers were up from native-mode development). Same root cause as
+  before (severe local bandwidth), same mitigations already in place: `docker compose config`
+  validates cleanly, both Dockerfiles were reviewed line-by-line, and the exact build commands
+  each Dockerfile runs were verified natively with the resulting app extensively browser-tested.
+  Documented honestly in the README rather than claimed as verified. If bandwidth allows in a
+  future session, `docker compose up -d --build` is the next thing to actually finish and watch.
+- **Two DOCX deliverables requested but not yet produced**: a detailed technical specification
+  (architecture, limitations, trade-offs, test documentation, improvement ideas across scale/
+  security/etc.) and a demo-video walkthrough script/guide covering both the codebase and a live
+  click-through of the running app. Plan: write each as Markdown first (kept in `docs/` for
+  version-control value), then convert with `pandoc` (confirmed available on this machine via
+  miniconda) to `.docx`. Not started as of this update.
 
 ## Next recommended task
 
-Confirm the Docker build finished cleanly (`docker compose ps`, then hit `localhost:3000` and
-`localhost:8080/actuator/health`); if the AI model finished pulling, flip `.env`'s
-`AI_PROVIDER` to `docker-model-runner` and do one live verification pass, then flip it back to
-`mock` (the documented default) before finishing. Otherwise, this is essentially done —
-mark the submission (git tag `submission` or note the final commit SHA) and do a final read
-through the README as if seeing it for the first time.
+Produce the two DOCX deliverables described above. After that, if bandwidth allows, attempt
+`docker compose up -d --build` one more time and update the README's known-limitations bullet
+either way (success or another honest failure note) — otherwise the project is complete: mark
+the submission (git tag `submission` or note the final commit SHA) and do a final read through
+the README as if seeing it for the first time.
