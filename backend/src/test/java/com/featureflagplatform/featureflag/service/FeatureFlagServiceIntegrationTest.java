@@ -11,14 +11,19 @@ import com.featureflagplatform.evaluation.domain.FlagType;
 import com.featureflagplatform.featureflag.dto.CreateFeatureFlagRequest;
 import com.featureflagplatform.featureflag.dto.FeatureFlagDto;
 import com.featureflagplatform.featureflag.dto.UpdateFeatureFlagRequest;
+import com.featureflagplatform.featureflag.event.FlagChangeEvent;
+import com.featureflagplatform.featureflag.event.FlagChangeType;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.domain.PageRequest;
 
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -34,7 +39,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * test here.
  */
 @SpringBootTest
-@Import(TestcontainersConfiguration.class)
+@Import({TestcontainersConfiguration.class, FeatureFlagServiceIntegrationTest.CapturingListenerConfig.class})
 class FeatureFlagServiceIntegrationTest {
 
     @Autowired
@@ -48,6 +53,9 @@ class FeatureFlagServiceIntegrationTest {
 
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private CapturingFlagChangeListener capturingFlagChangeListener;
 
     @Test
     void updateIncrementsVersionAndTheResponseReflectsItImmediately() {
@@ -129,5 +137,66 @@ class FeatureFlagServiceIntegrationTest {
         assertThat(updateEntry.previousValue().get("rolloutPercentage").asInt()).isEqualTo(10);
         assertThat(updateEntry.newValue().get("rolloutPercentage").asInt()).isEqualTo(40);
         assertThat(updateEntry.actorEmail()).isEqualTo("admin@example.com");
+    }
+
+    @Test
+    void createUpdateAndDeleteEachPublishAFlagChangeEventOnlyAfterTheirTransactionCommits() {
+        Environment environment = environmentRepository.findByName("DEV").orElseThrow();
+        User admin = userRepository.findByEmail("admin@example.com").orElseThrow();
+        String key = "it-test-" + UUID.randomUUID();
+        capturingFlagChangeListener.events.clear();
+
+        FeatureFlagDto created = featureFlagService.create(
+                new CreateFeatureFlagRequest(key, "Stream Test Flag", null, environment.getId(),
+                        FlagType.BOOLEAN, true, null, List.of()),
+                admin);
+
+        // No polling/Awaitility needed: @TransactionalEventListener(AFTER_COMMIT)
+        // fires synchronously as part of the commit that already happened by
+        // the time create() returned control to this thread.
+        assertThat(capturingFlagChangeListener.events)
+                .hasSize(1)
+                .first()
+                .satisfies(event -> {
+                    assertThat(event.flagId()).isEqualTo(created.id());
+                    assertThat(event.flagKey()).isEqualTo(key);
+                    assertThat(event.environmentId()).isEqualTo(environment.getId());
+                    assertThat(event.type()).isEqualTo(FlagChangeType.CREATED);
+                });
+
+        featureFlagService.update(created.id(),
+                new UpdateFeatureFlagRequest("Stream Test Flag", null, false, null, List.of(), 0L), admin);
+        assertThat(capturingFlagChangeListener.events).hasSize(2);
+        assertThat(capturingFlagChangeListener.events.get(1).type()).isEqualTo(FlagChangeType.UPDATED);
+
+        featureFlagService.delete(created.id(), admin);
+        assertThat(capturingFlagChangeListener.events).hasSize(3);
+        assertThat(capturingFlagChangeListener.events.get(2).type()).isEqualTo(FlagChangeType.DELETED);
+    }
+
+    /**
+     * A minimal, real event listener bean — not a mock — so this test
+     * proves the actual Spring event bus delivers {@link FlagChangeEvent} to
+     * a genuine subscriber after commit, the same mechanism
+     * {@code FlagChangeNotifier} relies on in production. {@code
+     * FlagChangeEvent} is a plain record (not an {@code ApplicationEvent}
+     * subclass), so this listens via {@code @EventListener} rather than
+     * implementing {@code ApplicationListener<E>}, which requires that bound.
+     */
+    static class CapturingFlagChangeListener {
+        final List<FlagChangeEvent> events = new CopyOnWriteArrayList<>();
+
+        @org.springframework.context.event.EventListener
+        void onFlagChange(FlagChangeEvent event) {
+            events.add(event);
+        }
+    }
+
+    @TestConfiguration
+    static class CapturingListenerConfig {
+        @Bean
+        CapturingFlagChangeListener capturingFlagChangeListener() {
+            return new CapturingFlagChangeListener();
+        }
     }
 }

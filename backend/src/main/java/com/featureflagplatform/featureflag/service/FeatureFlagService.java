@@ -15,13 +15,17 @@ import com.featureflagplatform.featureflag.dto.CreateFeatureFlagRequest;
 import com.featureflagplatform.featureflag.dto.FeatureFlagDto;
 import com.featureflagplatform.featureflag.dto.TargetingRuleDto;
 import com.featureflagplatform.featureflag.dto.UpdateFeatureFlagRequest;
+import com.featureflagplatform.featureflag.event.FlagChangeEvent;
+import com.featureflagplatform.featureflag.event.FlagChangeType;
 import com.featureflagplatform.featureflag.mapper.FeatureFlagMapper;
 import com.featureflagplatform.featureflag.repository.FeatureFlagRepository;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -34,18 +38,21 @@ public class FeatureFlagService {
     private final FeatureFlagMapper mapper;
     private final AuditService auditService;
     private final FeatureFlagCache cache;
+    private final ApplicationEventPublisher eventPublisher;
 
     public FeatureFlagService(
             FeatureFlagRepository featureFlagRepository,
             EnvironmentService environmentService,
             FeatureFlagMapper mapper,
             AuditService auditService,
-            FeatureFlagCache cache) {
+            FeatureFlagCache cache,
+            ApplicationEventPublisher eventPublisher) {
         this.featureFlagRepository = featureFlagRepository;
         this.environmentService = environmentService;
         this.mapper = mapper;
         this.auditService = auditService;
         this.cache = cache;
+        this.eventPublisher = eventPublisher;
     }
 
     public Page<FeatureFlagDto> list(UUID environmentId, Pageable pageable) {
@@ -85,6 +92,7 @@ public class FeatureFlagService {
         FeatureFlagDto dto = mapper.toDto(flag);
         auditService.record(actor, AuditAction.CREATE, "FeatureFlag", flag.getId(), environment, null, dto, flag.getVersion());
         cache.put(flag.toSnapshot());
+        publishChange(flag, FlagChangeType.CREATED);
 
         return dto;
     }
@@ -114,6 +122,7 @@ public class FeatureFlagService {
         FeatureFlagDto newDto = mapper.toDto(flag);
         auditService.record(actor, AuditAction.UPDATE, "FeatureFlag", flag.getId(), flag.getEnvironment(), previousDto, newDto, flag.getVersion());
         cache.put(flag.toSnapshot());
+        publishChange(flag, FlagChangeType.UPDATED);
 
         return newDto;
     }
@@ -122,11 +131,25 @@ public class FeatureFlagService {
     public void delete(UUID id, User actor) {
         FeatureFlag flag = findEntity(id);
         FeatureFlagDto previousDto = mapper.toDto(flag);
+        UUID environmentId = flag.getEnvironment().getId();
+        String key = flag.getKey();
 
         featureFlagRepository.delete(flag);
 
         auditService.record(actor, AuditAction.DELETE, "FeatureFlag", id, flag.getEnvironment(), previousDto, null, flag.getVersion());
         cache.evict(id);
+        eventPublisher.publishEvent(new FlagChangeEvent(id, key, environmentId, FlagChangeType.DELETED, Instant.now()));
+    }
+
+    /**
+     * Published from inside the same {@code @Transactional} method as the
+     * mutation itself, but {@link com.featureflagplatform.featureflag.event.FlagChangeNotifier}
+     * only broadcasts it {@code AFTER_COMMIT} — see that class's Javadoc for
+     * why a subscriber must never hear about a change that rolls back.
+     */
+    private void publishChange(FeatureFlag flag, FlagChangeType type) {
+        eventPublisher.publishEvent(new FlagChangeEvent(
+                flag.getId(), flag.getKey(), flag.getEnvironment().getId(), type, Instant.now()));
     }
 
     private static void validateRolloutInvariant(FlagType type, Integer rolloutPercentage) {

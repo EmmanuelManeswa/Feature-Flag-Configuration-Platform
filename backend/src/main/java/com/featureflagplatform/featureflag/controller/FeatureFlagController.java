@@ -4,11 +4,13 @@ import com.featureflagplatform.audit.dto.AuditLogDto;
 import com.featureflagplatform.audit.service.AuditService;
 import com.featureflagplatform.auth.security.SecurityUser;
 import com.featureflagplatform.evaluation.dto.EvaluateRequest;
+import com.featureflagplatform.evaluation.dto.EvaluationMetricsDto;
 import com.featureflagplatform.evaluation.dto.EvaluationResultDto;
 import com.featureflagplatform.evaluation.service.EvaluationService;
 import com.featureflagplatform.featureflag.dto.CreateFeatureFlagRequest;
 import com.featureflagplatform.featureflag.dto.FeatureFlagDto;
 import com.featureflagplatform.featureflag.dto.UpdateFeatureFlagRequest;
+import com.featureflagplatform.featureflag.event.FlagChangeNotifier;
 import com.featureflagplatform.featureflag.service.FeatureFlagService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -23,6 +25,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -36,6 +39,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.UUID;
 
@@ -48,11 +52,15 @@ public class FeatureFlagController {
     private final FeatureFlagService featureFlagService;
     private final EvaluationService evaluationService;
     private final AuditService auditService;
+    private final FlagChangeNotifier flagChangeNotifier;
 
-    public FeatureFlagController(FeatureFlagService featureFlagService, EvaluationService evaluationService, AuditService auditService) {
+    public FeatureFlagController(
+            FeatureFlagService featureFlagService, EvaluationService evaluationService,
+            AuditService auditService, FlagChangeNotifier flagChangeNotifier) {
         this.featureFlagService = featureFlagService;
         this.evaluationService = evaluationService;
         this.auditService = auditService;
+        this.flagChangeNotifier = flagChangeNotifier;
     }
 
     @GetMapping
@@ -161,5 +169,36 @@ public class FeatureFlagController {
     public ResponseEntity<Page<AuditLogDto>> auditForFlag(
             @PathVariable UUID id, @PageableDefault(size = 20) Pageable pageable) {
         return ResponseEntity.ok(auditService.listByEntity(id, pageable));
+    }
+
+    @GetMapping("/{id}/metrics")
+    @Operation(summary = "Evaluation metrics for one flag", description = "Basic in-process evaluation counters: "
+            + "how many times this flag has been evaluated, broken down by result. Backed by the same Micrometer "
+            + "counters exposed in aggregate (all flags, Prometheus format) at /actuator/prometheus — this endpoint "
+            + "just scopes and shapes them for one flag. Counts reset when the backend process restarts; this is "
+            + "an in-memory operational signal, not a durable analytics store.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Evaluation counts for this flag"),
+            @ApiResponse(responseCode = "404", description = "No flag with that ID",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+    })
+    public ResponseEntity<EvaluationMetricsDto> metrics(@PathVariable UUID id) {
+        FeatureFlagDto flag = featureFlagService.getById(id);
+        return ResponseEntity.ok(evaluationService.getMetrics(flag.key()));
+    }
+
+    @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @Operation(summary = "Live flag-change stream (Server-Sent Events)", description = "Emits a `flag-change` "
+            + "event (flag ID/key, environment, CREATED/UPDATED/DELETED, timestamp) whenever any flag is created, "
+            + "updated, or deleted, so a connected client can invalidate its cache instead of polling. Also emits "
+            + "a `connected` event immediately on subscribe and a keep-alive comment every 15s. "
+            + "**Not meaningfully testable from Swagger UI's \"Try it out\"** (it renders a single response, not a "
+            + "stream) — use `curl -N` with a bearer token, or the app's own live-updating flags list, to see it "
+            + "in action. Available to both ADMIN and VIEWER.")
+    @ApiResponse(responseCode = "200", description = "text/event-stream connection opened; stays open until the "
+            + "client disconnects or the 30-minute server-side timeout is reached (the frontend reconnects "
+            + "automatically either way).")
+    public SseEmitter stream() {
+        return flagChangeNotifier.subscribe();
     }
 }

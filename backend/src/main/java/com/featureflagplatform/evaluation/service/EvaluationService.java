@@ -5,11 +5,15 @@ import com.featureflagplatform.evaluation.domain.EvaluationContext;
 import com.featureflagplatform.evaluation.domain.EvaluationResult;
 import com.featureflagplatform.evaluation.domain.FeatureFlagEvaluator;
 import com.featureflagplatform.evaluation.domain.FeatureFlagSnapshot;
+import com.featureflagplatform.evaluation.dto.EvaluationMetricsDto;
 import com.featureflagplatform.evaluation.dto.EvaluationResultDto;
 import com.featureflagplatform.featureflag.repository.FeatureFlagRepository;
+import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.stereotype.Service;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -57,6 +61,29 @@ public class EvaluationService {
         meterRegistry.timer("feature_flag.evaluation.latency").record(System.nanoTime() - startNanos, java.util.concurrent.TimeUnit.NANOSECONDS);
 
         return EvaluationResultDto.from(result, cacheHit, latencyMicros);
+    }
+
+    /**
+     * Reads back the same {@code feature_flag.evaluations} counters {@link
+     * #evaluate} increments, scoped to one flag's key and grouped by the
+     * {@code result} tag. Deliberately a live read of Micrometer's own
+     * counters rather than a separate metrics table: no extra write path to
+     * keep consistent with the counters that already exist, at the cost of
+     * these counts resetting on backend restart (an accepted trade-off for
+     * "basic operational metrics", not a durable analytics requirement).
+     */
+    public EvaluationMetricsDto getMetrics(String flagKey) {
+        Map<String, Long> countsByResult = new LinkedHashMap<>();
+        long total = 0;
+        for (Counter counter : meterRegistry.find("feature_flag.evaluations").tag("flag", flagKey).counters()) {
+            String result = counter.getId().getTag("result");
+            long count = Math.round(counter.count());
+            if (result != null) {
+                countsByResult.merge(result, count, Long::sum);
+            }
+            total += count;
+        }
+        return new EvaluationMetricsDto(flagKey, countsByResult, total);
     }
 
     /**
