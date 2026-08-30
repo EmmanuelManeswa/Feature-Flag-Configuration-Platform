@@ -42,7 +42,7 @@ it's actually implemented, tested, and runnable.
 | Sensible REST design, pagination | ✅ `GET /api/v1/flags`, `/audit-logs` are paginated |
 | Structured logs, correlation/request IDs, metrics | ✅ `CorrelationIdFilter`, JSON logs in docker/prod, Micrometer counters/timer |
 | No committed secrets; common risk awareness (injection, IDOR, SSRF, prompt injection) | ✅ See `docs/security.md` for the full walkthrough |
-| Automated tests: important business logic + API/integration tests | ✅ 50 backend tests (unit/integration/API), 13 frontend tests |
+| Automated tests: important business logic + API/integration tests | ✅ 58 backend tests (unit/integration/API), 19 frontend tests |
 | Usable UI with loading/empty/error/success states | ✅ Skeletons, empty-state copy, toasts, disabled-while-pending buttons throughout |
 
 ## Mandatory deliverables (assessment section 8)
@@ -58,6 +58,14 @@ it's actually implemented, tested, and runnable.
 | API documentation (Swagger/OpenAPI) | ✅ `/swagger-ui.html` |
 | Docker-based run configuration | ✅ `docker-compose.yml` + Dockerfiles for both services |
 | 5–10 minute demo covering main flow, one failure path, AI feature, tests | Candidate to record — see suggested flow below |
+
+## Optional stretch goals (assessment's own list)
+
+| Stretch goal | Status |
+| --- | --- |
+| Server-Sent Events or WebSocket updates when a flag changes | ✅ SSE (`GET /api/v1/flags/stream`) — see [ADR-005](../.claude/decisions/ADR-005-stretch-goals.md) for why SSE over WebSocket |
+| SDK-style sample client showing how an application would consume the evaluation API | ✅ [`examples/sdk-client/`](../examples/sdk-client/) |
+| Basic evaluation metrics such as count per flag/result | ✅ `GET /api/v1/flags/{id}/metrics` |
 
 ## Suggested demo flow (assessment section 9's review questions)
 
@@ -75,6 +83,12 @@ it's actually implemented, tested, and runnable.
    requested "show what happens when a dependency fails" moment.
 8. Run `./mvnw test` and `pnpm test`, show both suites passing.
 9. Open Swagger UI, show the AI-unavailable `503` documented on the AI endpoint.
+10. **Stretch goals**: point out the "Live" indicator in the topbar; edit a flag from a second
+    tab (or `curl`) and show the flags list update in the first tab with no refresh; open a
+    flag's evaluation metrics card; run `node examples/sdk-client/example.mjs` in a terminal.
+
+See [`docs/Demo_Video_Script.md`](Demo_Video_Script.md) (and the accompanying `.docx`) for the
+full, narrated walkthrough this outline expands into.
 
 ## Honest gaps
 
