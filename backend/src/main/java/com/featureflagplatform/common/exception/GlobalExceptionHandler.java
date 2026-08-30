@@ -1,5 +1,6 @@
 package com.featureflagplatform.common.exception;
 
+import com.featureflagplatform.ai.service.AiUnavailableException;
 import com.featureflagplatform.common.observability.CorrelationId;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
@@ -44,6 +45,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     private static final URI TYPE_AUTH = URI.create("urn:problem-type:authentication-error");
     private static final URI TYPE_ACCESS_DENIED = URI.create("urn:problem-type:access-denied");
     private static final URI TYPE_INTERNAL = URI.create("urn:problem-type:internal-error");
+    private static final URI TYPE_AI_UNAVAILABLE = URI.create("urn:problem-type:ai-unavailable");
 
     @Override
     protected ResponseEntity<Object> handleMethodArgumentNotValid(
@@ -121,6 +123,22 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         problem.setType(TYPE_ACCESS_DENIED);
         enrich(problem, request);
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(problem);
+    }
+
+    @ExceptionHandler(AiUnavailableException.class)
+    public ResponseEntity<ProblemDetail> handleAiUnavailable(AiUnavailableException ex, HttpServletRequest request) {
+        // The specific reason (provider timeout, malformed JSON, failed schema
+        // validation, ...) is in the exception message/cause and already logged
+        // by the caller with the correlation ID — the client gets only the
+        // generic, assessment-specified copy, never which internal failure mode
+        // occurred.
+        log.warn("AI unavailable [correlationId={}]: {}", CorrelationId.current(), ex.getMessage());
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE,
+                "Unable to generate a rule proposal right now. You can configure the rule manually.");
+        problem.setTitle("AI unavailable");
+        problem.setType(TYPE_AI_UNAVAILABLE);
+        enrich(problem, request);
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(problem);
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
