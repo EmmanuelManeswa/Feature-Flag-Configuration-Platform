@@ -1,5 +1,5 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createFlag, deleteFlag, evaluateFlag, getFlag, getFlagAudit, listFlags, updateFlag } from "./api";
+import { createFlag, deleteFlag, evaluateFlag, getFlag, getFlagAudit, getFlagMetrics, listFlags, updateFlag } from "./api";
 import type { CreateFeatureFlagRequest, UpdateFeatureFlagRequest } from "@/types/api";
 
 export const flagKeys = {
@@ -7,6 +7,7 @@ export const flagKeys = {
   list: (environmentId: string | undefined, page: number) => ["flags", "list", environmentId ?? "all", page] as const,
   detail: (id: string) => ["flags", "detail", id] as const,
   audit: (id: string, page: number) => ["flags", "audit", id, page] as const,
+  metrics: (id: string) => ["flags", "metrics", id] as const,
 };
 
 export function useFlags(params: { environmentId?: string; page: number; size?: number }) {
@@ -66,5 +67,17 @@ export function useDeleteFlag() {
 export function useEvaluateFlag(id: string) {
   return useMutation({
     mutationFn: (input: { stableIdentifier: string; attributes: Record<string, string> }) => evaluateFlag(id, input),
+  });
+}
+
+export function useFlagMetrics(id: string | undefined) {
+  return useQuery({
+    queryKey: flagKeys.metrics(id ?? ""),
+    queryFn: () => getFlagMetrics(id as string),
+    enabled: Boolean(id),
+    // Polls while the panel is mounted so a demo showing a second tab/curl
+    // evaluating the flag sees the count move without a manual refresh —
+    // simpler than wiring a second SSE event type just for this.
+    refetchInterval: 10_000,
   });
 }

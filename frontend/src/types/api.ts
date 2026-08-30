@@ -125,6 +125,22 @@ export interface RuleProposalDto {
   explanation: string;
 }
 
+export interface EvaluationMetricsDto {
+  flagKey: string;
+  countsByResult: Record<string, number>;
+  totalEvaluations: number;
+}
+
+export type FlagChangeType = "CREATED" | "UPDATED" | "DELETED";
+
+export interface FlagChangeEvent {
+  flagId: string;
+  flagKey: string;
+  environmentId: string;
+  type: FlagChangeType;
+  occurredAt: string;
+}
+
 export interface ProblemDetail {
   type: string;
   title: string;

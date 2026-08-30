@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/breadcrumb";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { UserMenu } from "@/components/layout/user-menu";
+import { LiveUpdatesIndicator } from "@/components/layout/live-updates-indicator";
 
 const LABELS: Record<string, string> = {
   flags: "Feature Flags",
@@ -57,7 +58,8 @@ export function Topbar() {
         </BreadcrumbList>
       </Breadcrumb>
 
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-2">
+        <LiveUpdatesIndicator />
         <ThemeToggle />
         <UserMenu />
       </div>

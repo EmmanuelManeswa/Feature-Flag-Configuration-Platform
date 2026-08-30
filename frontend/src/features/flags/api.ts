@@ -2,6 +2,7 @@ import { apiFetch } from "@/lib/api-client";
 import type {
   AuditLogDto,
   CreateFeatureFlagRequest,
+  EvaluationMetricsDto,
   EvaluationResultDto,
   FeatureFlagDto,
   Page,
@@ -39,4 +40,8 @@ export function evaluateFlag(
 
 export function getFlagAudit(id: string, params: { page?: number; size?: number }): Promise<Page<AuditLogDto>> {
   return apiFetch<Page<AuditLogDto>>(`/api/v1/flags/${id}/audit`, { searchParams: params });
+}
+
+export function getFlagMetrics(id: string): Promise<EvaluationMetricsDto> {
+  return apiFetch<EvaluationMetricsDto>(`/api/v1/flags/${id}/metrics`);
 }

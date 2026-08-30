@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { FlagStatusBadge, FlagTypeBadge } from "@/components/flags/flag-badges";
 import { FlagFormDialog } from "@/components/flags/flag-form-dialog";
+import { FlagMetricsCard } from "@/components/flags/flag-metrics-card";
 import { EvaluationPlayground } from "@/components/evaluation/evaluation-playground";
 import { DataTable } from "@/components/data-table";
 import { auditColumns } from "@/components/audit/audit-columns";
@@ -146,6 +147,8 @@ export default function FlagDetailPage() {
 
         <EvaluationPlayground flagId={flag.id} />
       </div>
+
+      <FlagMetricsCard flagId={flag.id} />
 
       <Tabs defaultValue="audit">
         <TabsList>
