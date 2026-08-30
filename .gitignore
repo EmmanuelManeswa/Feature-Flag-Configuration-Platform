@@ -3,6 +3,10 @@
 .env.local
 .env.*.local
 
+# --- Personal demo-recording materials (not for the shared repo) ---
+docs/Demo_Video_Script.md
+docs/Demo_Video_Script.docx
+
 # --- Java / Maven ---
 backend/target/
 backend/.mvn/wrapper/maven-wrapper.jar

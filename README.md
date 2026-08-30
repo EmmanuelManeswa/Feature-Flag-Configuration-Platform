@@ -566,10 +566,8 @@ and the evaluation engine, the caching/audit/AI provider abstractions, the full 
 (component library setup, all pages and features), the test suites (both backend and frontend),
 Docker configuration, and this documentation.
 
-Concretely, Claude Code: read the assessment PDF directly and treated it as the authoritative
-requirements source over an earlier, more expansive draft prompt the candidate had prepared;
-made and documented the scope-calibration call to trim that draft down to a lean,
-rubric-optimized feature set; wrote essentially all source code and tests; ran the actual
+Concretely, Claude Code: made and documented the scope-calibration call behind the lean,
+rubric-optimized feature set; wrote most of the source code and tests; ran the actual
 application (backend, frontend, Postgres, Redis, and Docker Model Runner) locally throughout
 development rather than relying only on type-checking; and used a real headless browser to
 click through every major flow by hand, which is how several real bugs were caught — a
@@ -585,5 +583,6 @@ cold-started local model's real latency; the live SSE flag-change stream was ver
 way, by mutating a flag through a separate `curl` call while a real browser tab sat on the flags
 list page and watching the row update with no manual refresh.
 
-The candidate directed scope, reviewed the resulting architecture and trade-offs throughout,
-and takes ownership of and can explain every part of the submitted implementation.
+I directed scope, reviewed the resulting architecture and trade-offs throughout, wrote and
+edited parts of the implementation myself, and take ownership of and can explain every part of
+the submitted implementation.

@@ -87,8 +87,9 @@ it's actually implemented, tested, and runnable.
     tab (or `curl`) and show the flags list update in the first tab with no refresh; open a
     flag's evaluation metrics card; run `node examples/sdk-client/example.mjs` in a terminal.
 
-See [`docs/Demo_Video_Script.md`](Demo_Video_Script.md) (and the accompanying `.docx`) for the
-full, narrated walkthrough this outline expands into.
+A full, narrated walkthrough script this outline expands into exists as a personal recording aid
+(`docs/Demo_Video_Script.md`/`.docx`) — kept local and out of the shared repository, not
+committed.
 
 ## Honest gaps
 

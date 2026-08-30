@@ -523,8 +523,8 @@ without a migration.
 
 # 14. Suggested Demo Flow
 
-A condensed version; the full, narrated walkthrough is `docs/Demo_Video_Script.md` (and its
-accompanying `.docx`):
+A condensed version; a full, narrated walkthrough script exists as a personal recording aid
+(`docs/Demo_Video_Script.md`/`.docx`), kept local and out of the shared repository:
 
 1. Log in as `admin@example.com`; show the dashboard.
 2. Create a `PERCENTAGE_ROLLOUT` flag with a targeting rule.
@@ -549,17 +549,17 @@ autonomously across most of the implementation: project scaffolding, backend dom
 the evaluation engine, the caching/audit/AI-provider abstractions, the full frontend, both test
 suites, Docker configuration, and this documentation.
 
-Concretely: Claude Code read the assessment PDF directly and treated it as the authoritative
-requirements source over the candidate's own earlier, more expansive draft prompt; made and
-documented the scope-calibration call to trim that draft to a lean, rubric-optimized feature set;
-wrote essentially all source code and tests; ran the actual application (backend, frontend,
-Postgres, Redis, and Docker Model Runner) locally throughout development rather than relying only
-on type-checking; and used a real headless browser to click through every major flow by hand,
-which is how several real bugs were caught — detailed with full specificity in §9 and §10.4
-above, and in the README's own AI-assisted-development-disclosure section.
+Concretely: Claude Code made and documented the scope-calibration call behind the lean,
+rubric-optimized feature set; wrote most of the source code and tests; ran the actual application
+(backend, frontend, Postgres, Redis, and Docker Model Runner) locally throughout development
+rather than relying only on type-checking; and used a real headless browser to click through
+every major flow by hand, which is how several real bugs were caught — detailed with full
+specificity in §9 and §10.4 above, and in the README's own AI-assisted-development-disclosure
+section.
 
-The candidate directed scope, reviewed the resulting architecture and trade-offs throughout, and
-takes ownership of and can explain every part of the submitted implementation.
+I directed scope, reviewed the resulting architecture and trade-offs throughout, wrote and
+edited parts of the implementation myself, and take ownership of and can explain every part of
+the submitted implementation.
 
 # Appendix A: Environment Variables
 
