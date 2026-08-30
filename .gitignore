@@ -39,3 +39,4 @@ docker-data/
 *.log
 logs/
 */HELP.md
+.gstack/
