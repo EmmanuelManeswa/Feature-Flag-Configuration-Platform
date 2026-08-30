@@ -26,8 +26,14 @@ spring:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
-      timeout: 2000ms
-      connect-timeout: 2000ms
+      # Short on purpose: the whole point of the cache-aside design (ADR-002)
+      # is that a Redis outage degrades to "evaluation runs at Postgres
+      # speed", not "evaluation blocks for seconds per request". Verified by
+      # smoke-testing with Redis stopped — at Lettuce's 2s default this was
+      # ~4s per evaluation (a failed GET, then a failed PUT); at 300ms it's
+      # a bounded ~600ms worst case instead.
+      timeout: 300ms
+      connect-timeout: 300ms
   jackson:
     default-property-inclusion: non_null
 

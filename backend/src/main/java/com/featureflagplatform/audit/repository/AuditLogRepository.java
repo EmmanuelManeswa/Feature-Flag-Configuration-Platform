@@ -19,8 +19,4 @@ public interface AuditLogRepository extends AppendOnlyRepository<AuditLog, UUID>
     Page<AuditLog> findByEntityIdOrderByCreatedAtDesc(UUID entityId, Pageable pageable);
 
     Page<AuditLog> findByEnvironmentIdOrderByCreatedAtDesc(UUID environmentId, Pageable pageable);
-
-    Page<AuditLog> findByActorIdOrderByCreatedAtDesc(UUID actorId, Pageable pageable);
-
-    Page<AuditLog> findAllByOrderByCreatedAtDesc(Pageable pageable);
 }
