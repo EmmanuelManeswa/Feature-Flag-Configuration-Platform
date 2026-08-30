@@ -117,10 +117,12 @@ export function FlagFormDialog({ open, onOpenChange, mode, flag, defaultEnvironm
     },
   });
 
-  // Reset the form whenever a different flag (or a fresh AI proposal) is opened.
+  // Reset the form whenever a different flag (or a fresh AI proposal) is opened —
+  // a one-time sync on dialog open, not state derivable from props.
   useEffect(() => {
     if (open) {
       form.reset();
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setStaleConflict(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

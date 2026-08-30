@@ -28,8 +28,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    // One-time synchronization with an external system (localStorage + the
+    // /auth/me network call) on mount — not state derivable from props/state,
+    // which is what the lint rule is actually trying to catch.
     const token = getStoredToken();
     if (!token) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setIsLoading(false);
       return;
     }

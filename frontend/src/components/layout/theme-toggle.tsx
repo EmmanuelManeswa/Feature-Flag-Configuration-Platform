@@ -17,7 +17,10 @@ export function ThemeToggle() {
 
   // Theme is only known client-side (next-themes reads localStorage/system
   // preference after hydration) — render a stable placeholder until then to
-  // avoid a hydration mismatch.
+  // avoid a hydration mismatch. The standard next-themes mount-detection
+  // pattern; the alternative the lint rule suggests (useSyncExternalStore)
+  // is overkill for a one-time "are we past first client render" flag.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setMounted(true), []);
 
   if (!mounted) {
