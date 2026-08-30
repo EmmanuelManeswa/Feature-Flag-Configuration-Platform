@@ -90,8 +90,13 @@ got to.
   inter-container networking) was still in progress when this was last updated).
 - Live end-to-end verification of `DockerModelRunnerAiProvider` against a real pulled model —
   the mock provider (documented default) is fully verified; the Docker Model Runner path is
-  verified against the API contract and covered by mocked-provider tests, but the model pull
-  hadn't finished as of this update.
+  verified against the API contract and covered by mocked-provider tests. The `ai/llama3.2`
+  pull was retried across the session and ultimately **failed**, not just slow: it reached
+  ~202MB of 2.02GB then hit a blob digest mismatch (`docker model pull ai/llama3.2`, checksum
+  error), consistent with the same degraded-connection pattern seen with Docker Hub image
+  pulls all session. `docker model list` confirms no model is present locally. Not retried
+  further without the candidate's go-ahead, to avoid tying up the session on the same failure
+  mode again. This is disclosed honestly in the README rather than claimed as verified.
 - Optional stretch goals not attempted (SSE/WebSocket flag-change updates, an SDK-style sample
   client, none required for the lean scope decided with the candidate).
 
