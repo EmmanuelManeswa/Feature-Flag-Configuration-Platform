@@ -55,8 +55,15 @@ app:
     # mock | docker-model-runner
     provider: ${AI_PROVIDER:mock}
     base-url: ${AI_BASE_URL:http://localhost:12434/engines/v1}
-    model: ${AI_MODEL:ai/qwen2.5:latest}
-    timeout-ms: ${AI_TIMEOUT_MS:8000}
+    model: ${AI_MODEL:ai/llama3.2:latest}
+    # 20s, not 8s: measured directly against a real ai/llama3.2 call on this
+    # machine — a *cold* model (just loaded, or reloaded after Docker Model
+    # Runner idles it out) took ~14-18s before the first token, even though
+    # actual inference (per llama.cpp's own `timings.predicted_ms`) was well
+    # under a second once warm. 8s clipped real, successful responses before
+    # they finished. Irrelevant to MockAiProvider, which never makes a
+    # network call.
+    timeout-ms: ${AI_TIMEOUT_MS:20000}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
 
