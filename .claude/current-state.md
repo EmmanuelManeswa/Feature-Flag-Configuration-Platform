@@ -111,17 +111,13 @@ risk) — now allowlist-validated.
   each Dockerfile runs were verified natively with the resulting app extensively browser-tested.
   Documented honestly in the README rather than claimed as verified. If bandwidth allows in a
   future session, `docker compose up -d --build` is the next thing to actually finish and watch.
-- **Two DOCX deliverables requested but not yet produced**: a detailed technical specification
-  (architecture, limitations, trade-offs, test documentation, improvement ideas across scale/
-  security/etc.) and a demo-video walkthrough script/guide covering both the codebase and a live
-  click-through of the running app. Plan: write each as Markdown first (kept in `docs/` for
-  version-control value), then convert with `pandoc` (confirmed available on this machine via
-  miniconda) to `.docx`. Not started as of this update.
+
+Both DOCX deliverables (technical specification, demo video script) are done — see
+`docs/Technical_Specification.md`/`.docx` and `docs/Demo_Video_Script.md`/`.docx`.
 
 ## Next recommended task
 
-Produce the two DOCX deliverables described above. After that, if bandwidth allows, attempt
-`docker compose up -d --build` one more time and update the README's known-limitations bullet
-either way (success or another honest failure note) — otherwise the project is complete: mark
-the submission (git tag `submission` or note the final commit SHA) and do a final read through
-the README as if seeing it for the first time.
+If bandwidth allows, attempt `docker compose up -d --build` and update the README's known-
+limitations bullet either way (success, or another honest failure note). Otherwise the project
+is complete: mark the submission (git tag `submission` or note the final commit SHA) and do a
+final read through the README and both DOCX deliverables as if seeing them for the first time.
