@@ -40,6 +40,64 @@ services:
       timeout: 5s
       retries: 10
 
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      # Container-to-container addresses — always the compose service name and
+      # the *internal* port, regardless of what POSTGRES_PORT/REDIS_PORT are
+      # set to for host-side access above.
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-feature_flags}
+      POSTGRES_USER: ${POSTGRES_USER:-feature_flags}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-dev-password}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      SERVER_PORT: 8080
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in .env}
+      JWT_EXPIRATION_MINUTES: ${JWT_EXPIRATION_MINUTES:-60}
+      CACHE_FLAG_TTL_SECONDS: ${CACHE_FLAG_TTL_SECONDS:-300}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
+      AI_PROVIDER: ${AI_PROVIDER:-mock}
+      # host.docker.internal: Docker Desktop's DNS name for reaching services
+      # running on the host machine (where Docker Model Runner listens) from
+      # inside a container — "localhost" here would mean the container itself.
+      AI_BASE_URL: ${AI_BASE_URL:-http://host.docker.internal:12434/engines/v1}
+      AI_MODEL: ${AI_MODEL:-ai/llama3.2}
+      AI_TIMEOUT_MS: ${AI_TIMEOUT_MS:-8000}
+    ports:
+      - "${SERVER_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # Consumed by the browser, not this container — must point at the
+        # backend's *host*-reachable address, not the internal service name.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+
 volumes:
   postgres-data:
   redis-data:
