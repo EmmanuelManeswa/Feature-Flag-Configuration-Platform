@@ -2,7 +2,13 @@
 
 A minimal, dependency-free Node.js client for the platform's evaluation API — the
 "stretch goal" sample client showing how an application would actually consume this
-service, as opposed to the Swagger UI a developer uses to explore it.
+service, as opposed to the interactive Swagger UI a developer uses to explore it:
+**[localhost:8080/swagger-ui.html](http://localhost:8080/swagger-ui.html)** (once the backend
+is running — see [Running it](#running-it) below). Every endpoint this client calls is
+documented there in full, including every status code it can return, and can be exercised
+directly from that page — click **Authorize**, paste an access token from
+`POST /api/v1/auth/login`, and every protected endpoint becomes directly testable without
+writing a line of code.
 
 `client.mjs` is plain Node (>=18, for native `fetch`), zero npm dependencies, not a
 published package. It's small enough to read end to end in a couple of minutes — that's

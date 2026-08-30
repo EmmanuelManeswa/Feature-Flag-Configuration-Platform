@@ -65,7 +65,11 @@ public class FeatureFlagController {
 
     @GetMapping
     @Operation(summary = "List feature flags", description = "Optionally filter by environment. Server-side paginated.")
-    @ApiResponse(responseCode = "200", description = "Page of feature flags")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Page of feature flags"),
+            @ApiResponse(responseCode = "401", description = "Missing or invalid access token",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+    })
     public ResponseEntity<Page<FeatureFlagDto>> list(
             @Parameter(description = "Filter to a single environment") @RequestParam(required = false) UUID environmentId,
             @PageableDefault(size = 20, sort = "key") Pageable pageable) {
@@ -76,6 +80,8 @@ public class FeatureFlagController {
     @Operation(summary = "Get one feature flag by ID")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Flag found"),
+            @ApiResponse(responseCode = "401", description = "Missing or invalid access token",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "404", description = "No flag with that ID",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
@@ -155,6 +161,8 @@ public class FeatureFlagController {
             @ApiResponse(responseCode = "200", description = "Evaluation result"),
             @ApiResponse(responseCode = "400", description = "Validation failed (e.g. missing stableIdentifier)",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "401", description = "Missing or invalid access token",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "404", description = "No flag with that ID",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
@@ -165,7 +173,11 @@ public class FeatureFlagController {
     @GetMapping("/{id}/audit")
     @Operation(summary = "Audit history for one flag", description = "Every CREATE/UPDATE/DELETE recorded for "
             + "this flag ID, newest first, with before/after values.")
-    @ApiResponse(responseCode = "200", description = "Page of audit entries")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Page of audit entries"),
+            @ApiResponse(responseCode = "401", description = "Missing or invalid access token",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+    })
     public ResponseEntity<Page<AuditLogDto>> auditForFlag(
             @PathVariable UUID id, @PageableDefault(size = 20) Pageable pageable) {
         return ResponseEntity.ok(auditService.listByEntity(id, pageable));
@@ -179,6 +191,8 @@ public class FeatureFlagController {
             + "an in-memory operational signal, not a durable analytics store.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Evaluation counts for this flag"),
+            @ApiResponse(responseCode = "401", description = "Missing or invalid access token",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "404", description = "No flag with that ID",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
@@ -195,9 +209,13 @@ public class FeatureFlagController {
             + "**Not meaningfully testable from Swagger UI's \"Try it out\"** (it renders a single response, not a "
             + "stream) — use `curl -N` with a bearer token, or the app's own live-updating flags list, to see it "
             + "in action. Available to both ADMIN and VIEWER.")
-    @ApiResponse(responseCode = "200", description = "text/event-stream connection opened; stays open until the "
-            + "client disconnects or the 30-minute server-side timeout is reached (the frontend reconnects "
-            + "automatically either way).")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "text/event-stream connection opened; stays open "
+                    + "until the client disconnects or the 30-minute server-side timeout is reached (the "
+                    + "frontend reconnects automatically either way)."),
+            @ApiResponse(responseCode = "401", description = "Missing or invalid access token",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+    })
     public SseEmitter stream() {
         return flagChangeNotifier.subscribe();
     }

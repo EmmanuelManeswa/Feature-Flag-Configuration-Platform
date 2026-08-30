@@ -4,13 +4,17 @@ import com.featureflagplatform.audit.dto.AuditLogDto;
 import com.featureflagplatform.audit.service.AuditService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
+import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -35,7 +39,11 @@ public class AuditLogController {
     @Operation(summary = "List audit entries", description = "Optionally filter by environment. Newest first, "
             + "server-side paginated. Available to both ADMIN and VIEWER — audit history contains no secrets, "
             + "only who changed what and when.")
-    @ApiResponse(responseCode = "200", description = "Page of audit entries")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Page of audit entries"),
+            @ApiResponse(responseCode = "401", description = "Missing or invalid access token",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+    })
     public ResponseEntity<Page<AuditLogDto>> list(
             @Parameter(description = "Filter to a single environment") @RequestParam(required = false) UUID environmentId,
             @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {

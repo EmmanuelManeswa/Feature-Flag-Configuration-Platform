@@ -9,6 +9,11 @@ Built as a senior software developer take-home assessment (Project 1: Feature Fl
 Configuration Platform). See [`docs/assessment-compliance.md`](docs/assessment-compliance.md)
 for a requirement-by-requirement checklist.
 
+**Once the backend is running** (see [Quick start](#quick-start-docker) below): interactive API
+documentation — every endpoint, every possible response, and a working **Authorize** button to
+test protected endpoints directly — is at
+**[localhost:8080/swagger-ui.html](http://localhost:8080/swagger-ui.html)**.
+
 ## Contents
 
 - [Problem & solution](#problem--solution)

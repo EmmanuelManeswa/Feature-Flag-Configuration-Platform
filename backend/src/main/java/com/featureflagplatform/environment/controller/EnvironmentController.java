@@ -39,7 +39,11 @@ public class EnvironmentController {
 
     @GetMapping
     @Operation(summary = "List all environments")
-    @ApiResponse(responseCode = "200", description = "Environments returned")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Environments returned"),
+            @ApiResponse(responseCode = "401", description = "Missing or invalid access token",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+    })
     public ResponseEntity<List<EnvironmentDto>> listAll() {
         return ResponseEntity.ok(environmentService.listAll());
     }
@@ -48,6 +52,8 @@ public class EnvironmentController {
     @Operation(summary = "Get one environment by ID")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Environment found"),
+            @ApiResponse(responseCode = "401", description = "Missing or invalid access token",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "404", description = "No environment with that ID",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
