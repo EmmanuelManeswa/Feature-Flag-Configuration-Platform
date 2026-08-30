@@ -19,10 +19,13 @@ for a requirement-by-requirement checklist.
 - [Local development (without Docker)](#local-development-without-docker)
 - [Environment variables](#environment-variables)
 - [Database](#database)
+- [Data & log persistence](#data--log-persistence)
 - [Demo accounts](#demo-accounts)
 - [Running tests](#running-tests)
 - [API documentation](#api-documentation)
 - [AI integration](#ai-integration)
+- [Switching the AI model](#switching-the-ai-model)
+- [Stretch goals](#stretch-goals)
 - [Architecture decisions](#architecture-decisions)
 - [Known limitations](#known-limitations)
 - [Production readiness](#production-readiness)
@@ -62,6 +65,7 @@ flowchart TB
     DMR["Docker Model Runner<br/>(local LLM, optional)"]
 
     Browser -- "HTTPS / REST + JWT" --> Backend
+    Browser -. "SSE: live flag-change stream" .-> Flags
     Flags --> Postgres
     Audit --> Postgres
     Auth --> Postgres
@@ -87,6 +91,13 @@ flowchart TB
 - **AI rule assistant** is a two-layer abstraction (`AiProvider` → `AiRuleAssistantService`) that
   never persists anything — see [ADR-003](.claude/decisions/ADR-003-ai-provider-abstraction.md)
   and [AI integration](#ai-integration) below.
+- **Live updates**: `GET /api/v1/flags/stream` (Server-Sent Events) broadcasts a create/update/
+  delete notification to every connected client only after the change's transaction commits, so
+  the flags list and dashboard refresh without polling. **Evaluation metrics**:
+  `GET /api/v1/flags/{id}/metrics` shows evaluation counts per flag/result, read from the same
+  Micrometer counters the platform already collects. Both are optional stretch goals — see
+  [Stretch goals](#stretch-goals) and
+  [ADR-005](.claude/decisions/ADR-005-stretch-goals.md).
 
 ### Request trace: evaluating a flag
 
@@ -110,7 +121,7 @@ counter/timer recorded on the way out.
 | Server state | TanStack Query | Owns all server state — no ad-hoc `useEffect` fetching anywhere in the app. |
 | Tables | TanStack Table (legacy compat hook) | v9 replaced `useReactTable` with a new atom-store `useTable` API; this project only needs core row rendering (pagination/filtering are server-side), so the well-documented v8-compatible `useLegacyTable` was the lower-risk choice — see the doc comment in `components/data-table.tsx`. |
 | Forms | TanStack Form + Zod | Client-side validation mirroring the backend's Bean Validation, for fast feedback — the backend remains authoritative. |
-| Testing | JUnit 5, Mockito, Testcontainers, Vitest, React Testing Library | 50 backend tests (unit + Testcontainers integration + MockMvc API tests), 13 frontend tests — see [Running tests](#running-tests). |
+| Testing | JUnit 5, Mockito, Testcontainers, Vitest, React Testing Library | 58 backend tests (unit + Testcontainers integration + MockMvc API tests), 19 frontend tests — see [Running tests](#running-tests). |
 
 ## Prerequisites
 
@@ -202,6 +213,83 @@ backend startup:
 `spring.jpa.hibernate.ddl-auto=validate` — Hibernate only ever checks the schema matches;
 Flyway is the only thing that changes it.
 
+## Data & log persistence
+
+### Where Postgres/Redis data actually lives
+
+`docker-compose.yml` uses **named volumes** (`postgres-data`, `redis-data`), not bind mounts to
+a project folder — they survive `docker compose down` / `up` and container recreation; only
+`docker compose down -v` deletes them. Where those volumes physically live on disk depends on
+the host OS, because Docker Desktop on macOS and Windows runs containers inside a lightweight
+VM, while Linux's Docker Engine does not:
+
+| OS | Docker setup | Where the volume's files actually are |
+| --- | --- | --- |
+| **macOS** | Docker Desktop | Inside the Docker Desktop VM's disk image — not a normal macOS path you can `ls`. Use `docker volume inspect` (below) rather than hunting for a file. |
+| **Windows** | Docker Desktop (WSL2 backend, the default) | Inside the WSL2 virtual disk, under a path like `\\wsl$\docker-desktop-data\...` — same caveat as macOS: don't go looking for a plain Windows folder. |
+| **Linux** | Docker Engine (native, no VM) | A real host path, typically `/var/lib/docker/volumes/<volume-name>/_data` — directly browsable with sufficient permissions. |
+
+The portable, OS-independent way to find a volume regardless of platform:
+
+```bash
+docker volume ls | grep feature-flag        # find the exact generated name
+docker volume inspect <volume-name>          # "Mountpoint" field shows the path (accurate on
+                                              # Linux; on Mac/Windows it's a path *inside* the VM)
+
+# Look inside a volume's contents on any OS without caring where it physically lives:
+docker run --rm -v <volume-name>:/data alpine ls -la /data
+```
+
+### Changing where data is stored
+
+The simplest change that works identically on every OS: replace the named volume with a **bind
+mount** to a host path of your choosing, in `docker-compose.yml`:
+
+```yaml
+services:
+  postgres:
+    volumes:
+      - /your/chosen/path/postgres-data:/var/lib/postgresql/data   # was: postgres-data:/var/lib/postgresql/data
+```
+
+Do the same for `redis`'s `redis-data:/data` line if you want Redis's append-only file on a
+chosen path too (Redis's persisted data is disposable — see
+[ADR-002](.claude/decisions/ADR-002-caching-strategy.md) — so this matters far less than doing
+it for Postgres). Remove the now-unused `volumes:` top-level block entries if you bind-mount
+both.
+
+Alternatively, without touching this project's compose file at all, you can move **all** of
+Docker's storage (every project's volumes, not just this one) to a different disk/path:
+
+- **Docker Desktop (macOS/Windows)**: Settings → Resources → Advanced → "Disk image location."
+- **Docker Engine (Linux)**: set `"data-root"` in `/etc/docker/daemon.json` (e.g.
+  `{"data-root": "/your/path"}`), then restart the `docker` service.
+
+### Application logs
+
+The backend logs to stdout/stderr only (no file appender configured — see
+`backend/src/main/resources/logback-spring.xml`): human-readable in the default/local profile,
+structured JSON (one line per event, correlation ID included) in the `docker`/`prod` profile.
+Running under Docker, that output is captured by Docker's own logging driver (`json-file` by
+default), which has the exact same cross-platform location caveat as the volumes above — inside
+the Docker Desktop VM on macOS/Windows, at a real path
+(`/var/lib/docker/containers/<container-id>/<container-id>-json.log`) on native Linux.
+
+The portable way to read them on any OS, which is the recommended approach rather than hunting
+for the raw file:
+
+```bash
+docker compose logs backend           # everything since container start
+docker compose logs -f backend        # follow, like tail -f
+docker compose logs --since 10m backend
+```
+
+To persist logs to a host-controlled location outside the container (not configured by default
+in this project's lean scope): add a bind-mounted directory to the `backend` service (e.g.
+`- /your/chosen/path/logs:/app/logs`) and add a `FileAppender` writing into it in
+`logback-spring.xml`, or configure `log-opts` on Docker's `json-file` driver for rotation limits
+(unset here, so it uses whatever default the host's Docker daemon has configured).
+
 ## Demo accounts
 
 Seeded by `V6__seed_demo_data.sql`, password `Password123!` for both (bcrypt-hashed in the
@@ -220,13 +308,16 @@ authorization boundary. Verified directly: a VIEWER hitting an ADMIN-only endpoi
 ## Running tests
 
 ```bash
-# Backend: 50 tests — unit (evaluation engine, AI validation, correlation ID), Testcontainers
-# integration (real Postgres/Redis), and MockMvc API tests (auth/authz/validation/pagination).
+# Backend: 58 tests — unit (evaluation engine, AI validation, correlation ID, SSE broadcast/
+# cleanup), Testcontainers integration (real Postgres/Redis, including a real Spring event
+# listener proving flag-change events fire only after commit), and MockMvc API tests
+# (auth/authz/validation/pagination/metrics/streaming).
 cd backend
 ./mvnw test
 
-# Frontend: 13 tests — evaluation result rendering, AI proposal review flow (including the
-# AI-unavailable path), stale-version conflict handling, DataTable loading/empty states.
+# Frontend: 19 tests — evaluation result rendering, AI proposal review flow (including the
+# AI-unavailable path), stale-version conflict handling, DataTable loading/empty states, and
+# the hand-rolled SSE event parser (named/default events, multi-line data, heartbeat comments).
 cd frontend
 pnpm test
 ```
@@ -286,7 +377,85 @@ trail, same optimistic-concurrency check) as any manually-authored flag.
 
 **Cost/latency**: the mock path is instant and free. The Docker Model Runner path runs entirely
 on the local machine — no API key, no per-request cost, no data leaving the host; latency
-depends on local hardware (a few seconds for a 2B-class model on a typical laptop).
+depends on local hardware. Live-verified on this project's own development machine: a
+**cold** model (just loaded, or reloaded after Docker Model Runner idles it out) took roughly
+14-18 seconds before the first token, even though llama.cpp's own reported inference time was
+under a second once warm — see [`AI_TIMEOUT_MS`](#switching-the-ai-model) below.
+
+## Switching the AI model
+
+`AI_PROVIDER=docker-model-runner` isn't tied to one specific model — anything exposed through
+Docker Model Runner's OpenAI-compatible `/chat/completions` endpoint works, since
+`DockerModelRunnerAiProvider` only ever sends `{model, messages, temperature: 0,
+response_format}` and reads back `choices[0].message.content`. Swapping models is a config
+change, not a code change:
+
+```bash
+# See what's available in Docker's model catalog:
+docker model search llama
+docker model search qwen
+
+# Pull a different model (this project's default, ai/llama3.2, is already documented in
+# ADR-003 — pulling a different one is for trying alternatives):
+docker model pull ai/qwen2.5
+
+# Confirm it's actually present locally:
+docker model list
+
+# Point the backend at it — edit .env:
+AI_MODEL=ai/qwen2.5:latest
+
+# Then restart the backend so it picks up the new value (native run):
+cd backend && set -a && source ../.env && set +a && ./mvnw spring-boot:run
+# — or, under Docker Compose —
+docker compose up -d --build backend
+```
+
+**Why `AI_TIMEOUT_MS` defaults to 20000, not something smaller**: measured directly against a
+real `ai/llama3.2` call on this project's own development machine — a *cold* model (just
+started, or reloaded after Docker Model Runner idles it out from inactivity) took roughly
+14-18 seconds before returning a response, even though the model's own reported inference time
+(`timings.predicted_ms` in Docker Model Runner's response) was under a second once warm. An 8s
+timeout — the more conventional default for an API call — clipped real, successful responses
+before they finished. If you switch to a noticeably larger model, expect cold-start latency to
+grow further and consider raising `AI_TIMEOUT_MS` accordingly; this has no effect on
+`MockAiProvider`, which never makes a network call.
+
+**Structured-output reliability varies by model.** `AiRuleAssistantService`'s validation
+pipeline (extract JSON → deserialize → Bean Validation → domain validation) is defensive by
+design specifically because a model can wrap its answer in prose, use a markdown code fence, or
+occasionally produce a proposal that fails validation outright — any of those collapses to the
+same `503`/"configure manually" response rather than a crash or corrupted data (see
+[AI integration](#ai-integration) above). If a given model performs poorly at reliably emitting
+the exact JSON schema, per [ADR-003](.claude/decisions/ADR-003-ai-provider-abstraction.md) the
+documented next thing to try is a model with stronger structured-output track record (`ai/qwen2.5`
+was the specific alternative considered), not a code change.
+
+## Stretch goals
+
+Three optional stretch goals from the assessment, all implemented and live-verified (not just
+unit-tested) against the real running application — full rationale for each in
+[ADR-005](.claude/decisions/ADR-005-stretch-goals.md):
+
+- **Live updates.** `GET /api/v1/flags/stream` (Server-Sent Events, not WebSocket — the traffic
+  is one-way, "a flag changed, go refetch," so SSE is the narrower tool that fits, with no
+  message-broker dependency added). The frontend's topbar shows a small connected/connecting/
+  reconnecting indicator; editing a flag in one browser tab (or via `curl`, or the sample SDK
+  client) updates every other connected client's flags list within moments, with no polling and
+  no manual refresh. Verified in a real browser: mutated a flag through a separate `curl` call
+  while the flags list page sat open, and watched the row update live.
+- **Basic evaluation metrics.** `GET /api/v1/flags/{id}/metrics` — evaluation counts grouped by
+  result, shown on each flag's detail page, sourced from the same Micrometer counters the
+  platform already collects (also visible in raw Prometheus format at `/actuator/prometheus`).
+  In-memory, so counts reset on backend restart — an accepted trade-off for a basic operational
+  signal, not a durable analytics requirement.
+- **Sample SDK client.** [`examples/sdk-client/`](examples/sdk-client/) — a minimal,
+  dependency-free Node.js client (plain `fetch`, no `npm install` needed) demonstrating how an
+  application would actually consume the evaluation API: authenticate once, evaluate a flag by
+  ID with a stable identifier, read metrics, subscribe to the live-update stream. Its demo script
+  evaluates a real `PERCENTAGE_ROLLOUT` flag across several identifiers and prints the identical
+  true/false pattern on repeated runs — external, outside-the-codebase proof that the rollout
+  algorithm really is deterministic (ADR-001), not `Math.random()`.
 
 ## Architecture decisions
 
@@ -300,6 +469,9 @@ Full rationale lives in [`.claude/decisions/`](.claude/decisions/):
   model choice, and the validation pipeline
 - [ADR-004](.claude/decisions/ADR-004-simple-roles.md) — single-column role instead of a
   users/roles/user_roles join model
+- [ADR-005](.claude/decisions/ADR-005-stretch-goals.md) — live updates (SSE, not WebSocket),
+  evaluation metrics (read Micrometer back, no second write path), and the sample SDK client's
+  scope
 
 `.claude/CLAUDE.md` and `.claude/current-state.md` hold the fuller running project context this
 was built against (mission, non-negotiable rules, phase-by-phase progress).
@@ -329,10 +501,17 @@ Being honest about what a lean, rubric-optimized scope left out or simplified:
 - **Redis Testcontainers, not a Redis-specific test module.** Integration tests spin up a real
   Redis via a generic Testcontainers `GenericContainer`, which is sufficient here — no dedicated
   `testcontainers-redis` module was needed for the coverage this project wanted.
-- **Docker Model Runner path verified against the OpenAI-compatible API contract and covered by
-  15 mocked-provider tests, but live end-to-end verification with a pulled model depends on
-  local network conditions** — the mock provider (the documented default) was fully verified
-  live, including via real browser testing.
+- **Docker Model Runner: now live-verified end to end, after an earlier failed attempt.** The
+  `ai/llama3.2` pull failed partway through more than once earlier in development (a blob
+  checksum mismatch after ~10% downloaded, consistent with this development machine's
+  unreliable bandwidth throughout the project — not a bug in the platform). On a later, working
+  pull, the real model was exercised live through the full stack: `POST
+  /api/v1/ai/rule-proposals` against the assessment's own canonical example ("enable this for
+  20% of users in Harare except internal staff") returned a correctly-shaped, validated
+  `RuleProposalDto`. That run is also what surfaced the `AI_TIMEOUT_MS` cold-start issue
+  documented in [Switching the AI model](#switching-the-ai-model). `MockAiProvider` (the
+  documented default) remains separately, fully verified live via real browser testing, and is
+  still what a reviewer without Docker Model Runner enabled will see with zero setup.
 - **`docker compose up --build` was not fully verified end-to-end in this development
   environment**, due to severe local bandwidth constraints during development (a single ~150MB
   base image layer took several minutes at the observed transfer rate). What *was* verified:
@@ -393,7 +572,13 @@ Hibernate lazy-loading gap only reachable outside a transaction boundary, a vers
 bug from `save()` vs `saveAndFlush()`, a Redis-timeout misconfiguration that made the documented
 "graceful degradation" story take 4 seconds instead of tens of milliseconds, an authentication
 filter ordering bug that silently dropped correlation IDs and returned the wrong HTTP status on
-rejected requests, and two frontend UX rough edges in the AI proposal flow.
+rejected requests, and two frontend UX rough edges in the AI proposal flow. In a later session
+implementing the optional stretch goals, the same practice caught an `AI_MODEL` default that had
+silently drifted from what ADR-003 actually documented, and — only reachable by making a real
+call against a real pulled model rather than a mocked one — an `AI_TIMEOUT_MS` set too low for a
+cold-started local model's real latency; the live SSE flag-change stream was verified the same
+way, by mutating a flag through a separate `curl` call while a real browser tab sat on the flags
+list page and watching the row update with no manual refresh.
 
 The candidate directed scope, reviewed the resulting architecture and trade-offs throughout,
 and takes ownership of and can explain every part of the submitted implementation.
