@@ -333,6 +333,19 @@ Being honest about what a lean, rubric-optimized scope left out or simplified:
   15 mocked-provider tests, but live end-to-end verification with a pulled model depends on
   local network conditions** — the mock provider (the documented default) was fully verified
   live, including via real browser testing.
+- **`docker compose up --build` was not fully verified end-to-end in this development
+  environment**, due to severe local bandwidth constraints during development (a single ~150MB
+  base image layer took several minutes at the observed transfer rate). What *was* verified:
+  `docker compose config` resolves the full stack cleanly (env var interpolation, healthcheck
+  wiring, build args, service dependencies all correct — see the file itself, it's not long);
+  the Dockerfiles were reviewed line-by-line for correctness; and the exact same build commands
+  each Dockerfile runs (`./mvnw clean package`, `pnpm build`) were run and verified natively,
+  with the resulting application extensively tested end-to-end in a real browser. The
+  Docker-specific risk still open is narrow: whether the container build steps themselves
+  complete without error on a normal connection, which they were architecturally designed to
+  (multi-stage, standard base images, no unusual build steps) but were not empirically watched
+  finish in this environment. If this matters for evaluation, `docker compose up --build` is
+  the first thing to run.
 
 See [Production readiness](#production-readiness) below for what would need to change to run
 this for real, beyond a take-home assessment.
