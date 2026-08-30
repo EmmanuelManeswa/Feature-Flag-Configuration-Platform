@@ -5,7 +5,6 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.MDC;
-import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
@@ -32,8 +31,19 @@ import java.util.regex.Pattern;
  * log lines forged via CR/LF in a value that ends up in every log line for
  * the request) in one place, at the one point where external input enters
  * this value.
+ *
+ * <p>Deliberately <b>not</b> a {@code @Component}: Spring Boot auto-registers
+ * every {@code Filter} bean as a global servlet filter (in an unspecified,
+ * effectively-last order unless explicitly configured), which is too late —
+ * it would run after Spring Security's own filter chain, so a request
+ * rejected by {@code authorizeHttpRequests} (missing/invalid token) would
+ * never reach this filter at all, leaving MDC empty and the response header
+ * unset for exactly the responses where a correlation ID matters most for
+ * debugging. Caught by an API-level test, not by unit tests. Instead this is
+ * constructed directly and wired into Spring Security's own chain via
+ * {@code addFilterBefore(..., DisableEncodeUrlFilter.class)} in
+ * {@code SecurityConfig}, as the very first filter Security runs.
  */
-@Component
 public class CorrelationIdFilter extends OncePerRequestFilter {
 
     public static final String HEADER_NAME = "X-Correlation-ID";
