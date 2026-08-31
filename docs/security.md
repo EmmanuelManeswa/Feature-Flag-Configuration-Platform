@@ -24,6 +24,30 @@ script running on the page, i.e. an XSS vector) mitigated by a short default tok
 hour) and no refresh-token mechanism to extend that window. See
 [Known limitations](../README.md#known-limitations).
 
+## Account provisioning and lifecycle
+
+`POST /api/v1/users` (ADMIN only) generates a 16-character password with `java.security.
+SecureRandom` — never `Math.random()`, never client-supplied — returned exactly once in that
+response and never logged; only its bcrypt hash is persisted. Self-service password change
+(`PUT /api/v1/auth/me/password`) requires the current password, so a hijacked-but-not-yet-logged-
+out session can't be used to silently and permanently lock the real owner out.
+
+Accounts are disabled, never hard-deleted (`POST /api/v1/users/{id}/disable`/`enable`, ADMIN
+only) — see [ADR-006](../.claude/decisions/ADR-006-user-management.md) for the foreign-key and
+audit-trail reasons a real delete isn't offered. A disabled account is rejected at login
+(`DaoAuthenticationProvider`'s built-in pre-authentication check, via `SecurityUser.isEnabled()`)
+and, on every *subsequent* request, `JwtAuthenticationFilter` independently re-checks the same
+flag with a fresh database read before honoring an otherwise-valid, unexpired JWT — this was a
+real bug found during implementation: that filter builds its `Authentication` directly rather
+than through `DaoAuthenticationProvider`, so without an explicit check of its own, a token issued
+before an account was disabled would have kept working until natural expiry. Verified directly in
+`UserApiTest.aDisabledUserCanNoLongerLogInOrUseAnExistingToken`, which disables an account
+mid-session and asserts the same previously-valid token is rejected on the very next call.
+
+An admin cannot disable their own account — enforced server-side
+(`UserManagementService.disable`, `400` if the target ID matches the caller's own), preventing a
+single-admin deployment from locking itself out with no recovery path.
+
 ## Authorization
 
 Role-based (`ADMIN` / `VIEWER`), enforced **server-side** on every mutating endpoint via

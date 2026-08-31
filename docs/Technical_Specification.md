@@ -31,10 +31,11 @@ actually make a feature-flag platform trustworthy in production use, independent
 
 The result is a working, end-to-end system — Spring Boot backend, Next.js frontend, PostgreSQL
 system of record, Redis performance cache, and a genuinely functional AI rule assistant with two
-interchangeable providers — covered by 58 backend tests and 19 frontend tests, all three of the
-assessment's optional stretch goals implemented and live-verified, and documentation (this
-specification, the README, five Architecture Decision Records, and a security/production-
-readiness review) written to the same bar as the code.
+interchangeable providers — covered by 77 backend tests and 23 frontend tests, all three of the
+assessment's optional stretch goals implemented and live-verified, admin-managed user accounts
+added beyond the assessment's own scope, and documentation (this specification, the README, six
+Architecture Decision Records, and a security/production-readiness review) written to the same
+bar as the code.
 
 # 2. Problem Statement
 
@@ -229,6 +230,22 @@ reads the same Micrometer counters `EvaluationService` already increments, scope
 flag, rather than adding a second write path for the same signal. Full rationale for every
 decision in this section: [ADR-005](../.claude/decisions/ADR-005-stretch-goals.md).
 
+## 4.8 User management architecture
+
+Added beyond the assessment's own scope: `POST /api/v1/users` (ADMIN only) generates a password
+server-side (`PasswordGenerator`, `SecureRandom`) rather than accepting one from the client,
+stores only its bcrypt hash, and returns the plaintext exactly once in that response. Accounts
+are disabled via a boolean column, never hard-deleted — `feature_flags.created_by`/`updated_by`
+and `audit_logs.actor_id` both reference `users.id` with no cascade, so a user with any history
+can't be deleted without either a foreign-key violation or silently corrupting the audit trail's
+actor reference. Disabling wires into Spring Security's own `UserDetails#isEnabled()`, checked by
+`DaoAuthenticationProvider` at login and, after a fix made during implementation, independently
+re-checked by `JwtAuthenticationFilter` on every subsequent request against a fresh database read
+— see §9 for why that second check was necessary. Full rationale, including the specific
+foreign-key and audit-integrity reasoning and what was deliberately rejected (email-based
+password reset):
+[ADR-006](../.claude/decisions/ADR-006-user-management.md).
+
 # 5. Technology Stack & Rationale
 
 | Layer | Choice | Rationale |
@@ -242,7 +259,7 @@ decision in this section: [ADR-005](../.claude/decisions/ADR-005-stretch-goals.m
 | Server state | TanStack Query | Owns all server state — no ad-hoc `useEffect` fetching anywhere in the application. |
 | Tables | TanStack Table (v8-compatible legacy hook) | v9 replaced `useReactTable` with a new atom-store `useTable` API; this project only needs core row rendering (pagination/filtering are server-side), so the documented, stable `useLegacyTable` compatibility layer was the lower-risk choice for the actual requirement. |
 | Forms | TanStack Form + Zod | Client-side validation mirroring the backend's Bean Validation, for fast feedback — the backend remains the sole authority. |
-| Testing | JUnit 5, Mockito, Testcontainers, Vitest, React Testing Library | See §9 for the full breakdown. |
+| Testing | JUnit 5, Mockito, Testcontainers, Vitest, React Testing Library | See §10 for the full breakdown. |
 | Containerization | Docker, Docker Compose | Multi-stage builds for both services, non-root runtime users, healthchecks, named volumes for data persistence. |
 
 # 6. Core Domain Concepts
@@ -255,6 +272,7 @@ decision in this section: [ADR-005](../.claude/decisions/ADR-005-stretch-goals.m
 | **Evaluation Context** | The caller-supplied `stableIdentifier` (a durable per-user identifier — not a session ID) plus an arbitrary attribute map, passed to `POST /api/v1/flags/{id}/evaluate`. |
 | **Evaluation Result** | `value` (true/false), `reason` (one of `FLAG_DISABLED`, `TARGETING_RULE_NOT_MATCHED`, `BOOLEAN_MATCH`, `ROLLOUT_INCLUDED`, `ROLLOUT_EXCLUDED`), the computed `bucket` (0-99) for a percentage rollout, and — for a targeting-rule failure — which rule didn't match. |
 | **Audit Log** | One immutable row per CREATE/UPDATE/DELETE on a feature flag: actor, action, entity, environment, before/after JSON snapshots, the resulting version, and the correlation ID of the request that made the change. |
+| **User** | `email`/`displayName`/`role` (`ADMIN`/`VIEWER`)/`enabled`. Created by an ADMIN with a server-generated password (never client-supplied); disabled rather than deleted, since flags and audit rows reference a user's ID permanently. |
 
 # 7. Key Architectural Decisions
 
@@ -321,6 +339,20 @@ updates (the traffic is genuinely one-way), reading Micrometer counters back rat
 second write path for metrics, and a deliberately minimal, dependency-free sample SDK client
 rather than a production-grade published package.
 
+## ADR-006 — Admin user management: generated passwords, disable not delete
+
+**Decision:** covered in detail in §4.8 above and in the ADR itself — a server-generated password
+returned exactly once rather than a client-chosen one; accounts disabled via a boolean flag
+rather than hard-deleted, since flags and audit rows reference a user's ID with no cascade; and a
+server-side guard preventing an admin from disabling their own account.
+
+**Why it matters:** the second point surfaced a real, non-hypothetical bug during implementation
+— `JwtAuthenticationFilter`'s per-request authentication path doesn't go through
+`DaoAuthenticationProvider`, so it needed its own explicit `isEnabled()` check for a disabled
+account to lose access immediately rather than only at its next login. This is the kind of gap
+that only becomes visible when reasoning carefully through *every* path a credential can be
+validated on, not just the obvious one (login) — see §9.
+
 # 8. API Surface
 
 Full request/response shapes, every status code each endpoint can return, and interactive
@@ -329,7 +361,8 @@ when the backend is running. Summary of the surface:
 
 | Area | Endpoints |
 | --- | --- |
-| Auth | `POST /api/v1/auth/login`, `GET /api/v1/auth/me` |
+| Auth | `POST /api/v1/auth/login`, `GET /api/v1/auth/me`, `PUT /api/v1/auth/me/password` (self-service, any role) |
+| Users *(beyond assessment scope)* | `GET /api/v1/users` (ADMIN), `POST /api/v1/users` (ADMIN, returns a one-time generated password), `POST /api/v1/users/{id}/disable`\|`/enable` (ADMIN) |
 | Environments | `GET /api/v1/environments`, `GET /api/v1/environments/{id}`, `POST /api/v1/environments` (ADMIN) |
 | Feature Flags | `GET /api/v1/flags`, `GET /api/v1/flags/{id}`, `POST /api/v1/flags` (ADMIN), `PUT /api/v1/flags/{id}` (ADMIN, optimistic concurrency), `DELETE /api/v1/flags/{id}` (ADMIN) |
 | Evaluation | `POST /api/v1/flags/{id}/evaluate` |
@@ -360,6 +393,14 @@ automated review finding on committed code.
 **Authorization:** role-based, enforced server-side via `@PreAuthorize` on every mutating
 endpoint, verified with a real HTTP request in `FeatureFlagApiTest` asserting a genuine `403` for
 a VIEWER hitting an ADMIN-only endpoint — not merely asserted as a design intent.
+
+**Account lifecycle:** admin-created accounts get a server-generated password (`SecureRandom`,
+never client-supplied, never logged); accounts are disabled rather than deleted, and — after a
+genuine implementation-time bug fix — disabling now takes effect on a user's very next API call,
+not just their next login, because `JwtAuthenticationFilter`'s per-request path independently
+re-checks `isEnabled()` against a fresh database read rather than trusting the token. An admin
+cannot disable their own account. Full detail: `docs/security.md` and
+[ADR-006](../.claude/decisions/ADR-006-user-management.md).
 
 **Prompt injection:** the AI system prompt explicitly instructs the model to treat the user's
 natural-language input as data to extract targeting criteria from, never as instructions to
@@ -393,21 +434,24 @@ real `curl` calls, *after* the automated suites were already green. This is docu
 because it's a genuine, load-bearing practice this project followed, not a retrospective
 rationalization: `mvn test` passing and `tsc --noEmit` passing are necessary, not sufficient.
 
-## 10.2 Backend test suite — 58 tests
+## 10.2 Backend test suite — 77 tests
 
 | Test class | Count | What it covers |
 | --- | :---: | --- |
 | `FeatureFlagEvaluatorTest` | 18 | The framework-free evaluation core: disabled flags, boolean matches, targeting-rule matching/non-matching, deterministic percentage-rollout bucketing, and golden-vector cross-checks against an independent Python implementation of the same SHA-256 hashing algorithm. |
 | `AiRuleAssistantServiceTest` | 11 | Every stage of the AI validation pipeline against a mocked `AiProvider`: successful extraction, JSON wrapped in prose/markdown fences, malformed JSON, failed Bean Validation, failed domain-invariant validation, and all five `AiFailureReason` values collapsing to the correct `503`. |
 | `FeatureFlagApiTest` | 10 | Full-stack HTTP tests via MockMvc against a real Spring context (Testcontainers Postgres/Redis): auth requirement, role-based authorization (`403` for VIEWER on ADMIN-only routes), field-level validation errors, `404` shape, pagination, correlation ID propagation (both generated and client-supplied), the new metrics endpoint, and the new SSE stream endpoint's auth requirement and immediate `connected` event on the wire. |
+| `UserApiTest` | 7 | Full-stack HTTP tests for user management: unauthenticated/VIEWER access denied, a duplicate-email `400`, an admin blocked from disabling their own account, and two end-to-end round trips that don't stop at the API contract — a freshly generated password actually logging in, and a disabled account's *already-issued* token being rejected on its very next request. |
 | `MockAiProviderTest` | 4 | The deterministic keyword-parsing mock provider: the assessment's own canonical example, percentage extraction, exclusion-clause handling, and the plain-BOOLEAN fallback when a percentage can't be confidently extracted. |
 | `CorrelationIdFilterTest` | 4 | Header generation when absent, echoing a valid client-supplied ID, and rejecting an invalid one (including a literal CRLF/response-splitting injection payload) in favor of a freshly generated UUID. |
 | `FeatureFlagServiceIntegrationTest` | 4 | Against real Postgres via Testcontainers, not a mocked repository — the exact class of bug (`saveAndFlush` vs `save` version-staleness) a mock would have hidden entirely. Also proves, with a real Spring event listener (not a mock), that create/update/delete each publish exactly one `FlagChangeEvent`, and only after their transaction commits. |
 | `FlagChangeNotifierTest` | 4 | SSE broadcast/cleanup logic in isolation: a completed emitter genuinely rejects further sends (the assumption the notifier's cleanup logic relies on), broadcasting with zero/multiple/a mix of live-and-disconnected subscribers never throws. |
-| `AuthServiceTest` | 2 | Successful login issuing a valid token; a wrong password producing the correct generic authentication failure. |
+| `PasswordGeneratorTest` | 4 | Generated password length, presence of all four character classes, absence of visually-ambiguous characters, and non-repetition across 100 draws (a broken/predictable RNG would collapse this set). |
+| `UserManagementServiceIntegrationTest` | 6 | Against real Postgres: a generated password's hash actually matches via `PasswordEncoder`, duplicate email rejected, disable/enable round-trips the `enabled` flag, an admin cannot disable their own account, disabling an unknown ID is a `404`, and the list view never exposes a password field. |
+| `AuthServiceTest` | 4 | Successful login issuing a valid token; a wrong password producing the correct generic authentication failure; `changePassword` rejecting an incorrect current password without touching the stored hash; `changePassword` hashing and persisting a new one when the current password matches. |
 | `BackendApplicationTests` | 1 | The Spring context loads cleanly with all beans wired — the cheapest possible regression test against a broken bean graph. |
 
-## 10.3 Frontend test suite — 19 tests
+## 10.3 Frontend test suite — 23 tests
 
 | Test file | Count | What it covers |
 | --- | :---: | --- |
@@ -416,6 +460,7 @@ rationalization: `mvn test` passing and `tsc --noEmit` passing are necessary, no
 | `ai-rule-assistant-dialog.test.tsx` | 3 | The AI proposal review flow, including the AI-unavailable (`503`) path rendering the correct, non-duplicated error copy. |
 | `flag-form-dialog.test.tsx` | 3 | Required-field validation blocking submission, and the `409` stale-version-conflict path surfacing explicitly rather than silently retrying or overwriting. |
 | `sse-client.test.ts` | 6 | The hand-rolled SSE wire-format parser: named events, the `message` default when no `event:` line is present, multi-line `data:` joining per the SSE specification, and comment/heartbeat lines correctly producing no event. |
+| `create-user-dialog.test.tsx` | 4 | Required-field validation blocking submission; the generated password staying visible (dialog doesn't auto-close) after a successful create; the clipboard copy succeeding; and — a real bug found via live browser testing, not written speculatively — the clipboard copy *failing* (permission denied) surfacing a clear "copy it manually" message instead of the button silently doing nothing. |
 
 ## 10.4 What automated tests deliberately do not cover, and why
 
@@ -519,7 +564,9 @@ blue-green deploy strategy would prevent a bad deploy from taking evaluation tra
 Beyond the stretch goals already implemented: a backend dashboard-aggregation endpoint (once
 flag counts grow past what a single generously-paginated query comfortably handles), server-side
 flag text search, and environment update/delete if the DEV/STAGING/PROD set ever needs to change
-without a migration.
+without a migration. On the user-management side (§4.8, ADR-006): email-based password reset and
+`JWT_SECRET` rotation with grace-period dual-key verification, neither built here as this is a
+demo-scoped feature, not a production identity system.
 
 # 14. Suggested Demo Flow
 

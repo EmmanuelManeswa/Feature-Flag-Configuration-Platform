@@ -26,6 +26,7 @@ test protected endpoints directly — is at
 - [Database](#database)
 - [Data & log persistence](#data--log-persistence)
 - [Demo accounts](#demo-accounts)
+- [User management](#user-management)
 - [Running tests](#running-tests)
 - [API documentation](#api-documentation)
 - [AI integration](#ai-integration)
@@ -103,6 +104,11 @@ flowchart TB
   Micrometer counters the platform already collects. Both are optional stretch goals — see
   [Stretch goals](#stretch-goals) and
   [ADR-005](.claude/decisions/ADR-005-stretch-goals.md).
+- **User management**: an ADMIN creates accounts with a backend-generated password (never
+  client-supplied), and accounts are disabled rather than deleted — a user with any flag/audit
+  history can't be hard-deleted without violating a foreign key. See
+  [User management](#user-management) and
+  [ADR-006](.claude/decisions/ADR-006-user-management.md).
 
 ### Request trace: evaluating a flag
 
@@ -126,7 +132,7 @@ counter/timer recorded on the way out.
 | Server state | TanStack Query | Owns all server state — no ad-hoc `useEffect` fetching anywhere in the app. |
 | Tables | TanStack Table (legacy compat hook) | v9 replaced `useReactTable` with a new atom-store `useTable` API; this project only needs core row rendering (pagination/filtering are server-side), so the well-documented v8-compatible `useLegacyTable` was the lower-risk choice — see the doc comment in `components/data-table.tsx`. |
 | Forms | TanStack Form + Zod | Client-side validation mirroring the backend's Bean Validation, for fast feedback — the backend remains authoritative. |
-| Testing | JUnit 5, Mockito, Testcontainers, Vitest, React Testing Library | 58 backend tests (unit + Testcontainers integration + MockMvc API tests), 19 frontend tests — see [Running tests](#running-tests). |
+| Testing | JUnit 5, Mockito, Testcontainers, Vitest, React Testing Library | 77 backend tests (unit + Testcontainers integration + MockMvc API tests), 23 frontend tests — see [Running tests](#running-tests). |
 
 ## Prerequisites
 
@@ -310,19 +316,45 @@ what the frontend shows or hides — the frontend hiding a button is a UX nicety
 authorization boundary. Verified directly: a VIEWER hitting an ADMIN-only endpoint gets a real
 `403`, not just a hidden button (see `FeatureFlagApiTest`).
 
+## User management
+
+An ADMIN can create additional accounts from the **Users** page (sidebar link, ADMIN-only) or via
+`POST /api/v1/users` directly. There is no self-service signup and no password field on that
+request — a strong password is generated server-side (`SecureRandom`, 16 characters, guaranteed
+at least one uppercase/lowercase/digit/symbol) and returned exactly once, in that response, for
+the admin to copy and share out of band. Only its bcrypt hash is ever persisted; the plaintext is
+never logged and can't be retrieved again after the dialog closes. The new user can change it
+themselves afterward from the user menu (**Change password**, top right) — available to any
+logged-in account, ADMIN or VIEWER, and requires the current password.
+
+Accounts are **disabled, never deleted** — a user with any flag or audit history can't be
+hard-deleted without violating a foreign key (`feature_flags.created_by`/`updated_by` and
+`audit_logs.actor_id` all reference `users.id`), and the audit trail must always resolve to a real
+actor. A disabled account is rejected at login and — since the account is re-checked from the
+database on every request rather than trusted from the token — loses API access on its very next
+request, not just at its next login attempt. An admin cannot disable their own account (enforced
+server-side, `400` if attempted), so a single-admin deployment can never lock itself out. Full
+rationale: [ADR-006](.claude/decisions/ADR-006-user-management.md).
+
+This is explicitly a demo/assessment-scoped feature, not a production user-management system —
+see [ADR-006](.claude/decisions/ADR-006-user-management.md) for what was deliberately left out
+(email-based password reset, most notably) and why.
+
 ## Running tests
 
 ```bash
-# Backend: 58 tests — unit (evaluation engine, AI validation, correlation ID, SSE broadcast/
-# cleanup), Testcontainers integration (real Postgres/Redis, including a real Spring event
-# listener proving flag-change events fire only after commit), and MockMvc API tests
-# (auth/authz/validation/pagination/metrics/streaming).
+# Backend: 77 tests — unit (evaluation engine, AI validation, correlation ID, SSE broadcast/
+# cleanup, password generation), Testcontainers integration (real Postgres/Redis, including a
+# real Spring event listener proving flag-change events fire only after commit, and user
+# creation/disable/enable), and MockMvc API tests (auth/authz/validation/pagination/metrics/
+# streaming/user-management, including a disabled account losing API access mid-session).
 cd backend
 ./mvnw test
 
-# Frontend: 19 tests — evaluation result rendering, AI proposal review flow (including the
-# AI-unavailable path), stale-version conflict handling, DataTable loading/empty states, and
-# the hand-rolled SSE event parser (named/default events, multi-line data, heartbeat comments).
+# Frontend: 23 tests — evaluation result rendering, AI proposal review flow (including the
+# AI-unavailable path), stale-version conflict handling, DataTable loading/empty states, the
+# hand-rolled SSE event parser (named/default events, multi-line data, heartbeat comments), and
+# the create-user flow (including a clipboard-permission-denied fallback).
 cd frontend
 pnpm test
 ```
@@ -477,6 +509,8 @@ Full rationale lives in [`.claude/decisions/`](.claude/decisions/):
 - [ADR-005](.claude/decisions/ADR-005-stretch-goals.md) — live updates (SSE, not WebSocket),
   evaluation metrics (read Micrometer back, no second write path), and the sample SDK client's
   scope
+- [ADR-006](.claude/decisions/ADR-006-user-management.md) — backend-generated passwords,
+  disable-not-delete, and the self-disable guard for admin-managed user accounts
 
 `.claude/CLAUDE.md` and `.claude/current-state.md` hold the fuller running project context this
 was built against (mission, non-negotiable rules, phase-by-phase progress).
