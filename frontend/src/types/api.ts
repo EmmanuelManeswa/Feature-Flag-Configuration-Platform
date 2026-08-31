@@ -125,6 +125,31 @@ export interface RuleProposalDto {
   explanation: string;
 }
 
+export interface UserDto {
+  id: string;
+  email: string;
+  displayName: string;
+  role: Role;
+  enabled: boolean;
+  createdAt: string;
+}
+
+export interface CreateUserRequest {
+  email: string;
+  displayName: string;
+  role: Role;
+}
+
+export interface CreatedUserDto {
+  user: UserDto;
+  generatedPassword: string;
+}
+
+export interface ChangePasswordRequest {
+  currentPassword: string;
+  newPassword: string;
+}
+
 export interface EvaluationMetricsDto {
   flagKey: string;
   countsByResult: Record<string, number>;

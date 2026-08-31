@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Flag, LayoutDashboard, Layers, ScrollText, Sparkles } from "lucide-react";
+import { Flag, LayoutDashboard, Layers, ScrollText, Sparkles, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/providers/auth-provider";
 
@@ -13,9 +13,12 @@ const NAV_ITEMS = [
   { href: "/audit", label: "Audit Log", icon: ScrollText, exact: false },
 ] as const;
 
+const ADMIN_NAV_ITEMS = [{ href: "/users", label: "Users", icon: Users, exact: false }] as const;
+
 export function Sidebar() {
   const pathname = usePathname();
   const { user } = useAuth();
+  const isAdmin = user?.role === "ADMIN";
 
   return (
     <aside className="hidden w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground md:flex">
@@ -27,7 +30,7 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 space-y-0.5 p-2">
-        {NAV_ITEMS.map((item) => {
+        {[...NAV_ITEMS, ...(isAdmin ? ADMIN_NAV_ITEMS : [])].map((item) => {
           const isActive = item.exact ? pathname === item.href : pathname.startsWith(item.href);
           const Icon = item.icon;
           return (
