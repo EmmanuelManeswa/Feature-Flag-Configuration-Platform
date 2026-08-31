@@ -9,6 +9,14 @@ Built as a senior software developer take-home assessment (Project 1: Feature Fl
 Configuration Platform). See [`docs/assessment-compliance.md`](docs/assessment-compliance.md)
 for a requirement-by-requirement checklist.
 
+## Demo video
+
+[![Demo video — Feature Flag & Configuration Platform](https://img.youtube.com/vi/rHnRQ2Yp9Bo/maxresdefault.jpg)](https://youtu.be/rHnRQ2Yp9Bo)
+
+Click the thumbnail above, or watch directly on YouTube: **<https://youtu.be/rHnRQ2Yp9Bo>**.
+(Hosted on YouTube rather than committed to the repo — a raw screen recording is well beyond
+what's practical to store and clone as a Git blob.)
+
 **Once the backend is running** (see [Quick start](#quick-start-docker) below): interactive API
 documentation — every endpoint, every possible response, and a working **Authorize** button to
 test protected endpoints directly — is at
@@ -16,6 +24,7 @@ test protected endpoints directly — is at
 
 ## Contents
 
+- [Demo video](#demo-video)
 - [Problem & solution](#problem--solution)
 - [Architecture](#architecture)
 - [Technology stack](#technology-stack--why)
