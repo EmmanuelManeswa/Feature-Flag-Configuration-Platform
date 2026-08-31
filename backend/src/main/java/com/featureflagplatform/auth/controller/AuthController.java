@@ -1,5 +1,6 @@
 package com.featureflagplatform.auth.controller;
 
+import com.featureflagplatform.auth.dto.ChangePasswordRequest;
 import com.featureflagplatform.auth.dto.LoginRequest;
 import com.featureflagplatform.auth.dto.LoginResponse;
 import com.featureflagplatform.auth.dto.UserSummary;
@@ -19,6 +20,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -61,5 +63,23 @@ public class AuthController {
     public ResponseEntity<UserSummary> me(Authentication authentication) {
         var securityUser = (SecurityUser) authentication.getPrincipal();
         return ResponseEntity.ok(UserSummary.from(securityUser.user()));
+    }
+
+    @PutMapping(value = "/me/password", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(summary = "Change your own password", description = "Available to any authenticated user "
+            + "(ADMIN or VIEWER) for their own account only. Requires the current password — a hijacked but "
+            + "not-yet-logged-out session can't be used to silently lock the real owner out permanently.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Password changed"),
+            @ApiResponse(responseCode = "400", description = "Validation failed, or currentPassword is incorrect",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "401", description = "Missing or invalid access token",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+    })
+    public ResponseEntity<Void> changePassword(
+            @Valid @RequestBody ChangePasswordRequest request, Authentication authentication) {
+        var securityUser = (SecurityUser) authentication.getPrincipal();
+        authService.changePassword(securityUser.user(), request);
+        return ResponseEntity.noContent().build();
     }
 }

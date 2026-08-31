@@ -50,6 +50,17 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         String email = claims.get("email", String.class);
         try {
             var userDetails = userDetailsService.loadUserByUsername(email);
+            // A fresh DB lookup on every request (not a claim decoded from the
+            // token itself), specifically so this check reflects the account's
+            // *current* state — an admin disabling a user takes effect on that
+            // user's very next request, not just at their next login. This
+            // path builds the Authentication directly rather than going
+            // through AuthenticationManager/DaoAuthenticationProvider, so it
+            // doesn't get that provider's own isEnabled() check for free; it
+            // has to be done here instead.
+            if (!userDetails.isEnabled()) {
+                return;
+            }
             var authentication = new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
             authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
             SecurityContextHolder.getContext().setAuthentication(authentication);
